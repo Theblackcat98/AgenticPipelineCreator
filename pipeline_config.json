@@ -1,0 +1,65 @@
+{
+  "pipeline_name": "AI-Content-Generation-Pipeline",
+  "initial_input": "Write a 4-chapter sci-fi story for adults about a rogue AI on Mars that develops a sense of humor. The mood should be dark but witty.",
+  "start_agent": "parse_user_request",
+  "agents": [
+    {
+      "id": "parse_user_request",
+      "type": "tool_agent",
+      "tool_name": "StructuredDataParserTool",
+      "description": "Parses user message into structured content parameters.",
+      "inputs": {
+        "natural_language_request": "pipeline.initial_input"
+      },
+      "outputs": [ "title", "topic", "mood", "num_chapters" ],
+      "tool_config": {
+        "model": "phi4:latest",
+        "instructions": "The user wants to write a story. Extract the title, topic, mood, and number of chapters from their request."
+      }
+    },
+    {
+      "id": "generate_chapter_descriptions",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Generates descriptions for each chapter.",
+      "prompt_template": "The story is about '{topic}' with a '{mood}' mood. Generate a creative, one-sentence description for each of the {num_chapters} chapters. Respond with a list. Do not write anything else.",
+      "inputs": {
+        "topic": "parse_user_request.topic",
+        "mood": "parse_user_request.mood",
+        "num_chapters": "parse_user_request.num_chapters"
+      },
+      "outputs": [ "chapter_descriptions" ],
+      "output_format": "list"
+    },
+    {
+      "id": "write_chapters",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Writes the content for each chapter.",
+      "prompt_template": "You are a master storyteller. Write the full content for a story titled '{title}'. The topic is '{topic}' and the mood is '{mood}'. Use the following chapter descriptions as a strict outline: {chapter_descriptions}.",
+      "inputs": {
+        "title": "parse_user_request.title",
+        "topic": "parse_user_request.topic",
+        "mood": "parse_user_request.mood",
+        "chapter_descriptions": "generate_chapter_descriptions.chapter_descriptions"
+      },
+      "outputs": [ "full_story_content" ]
+    }
+  ],
+  "routing": {
+    "parse_user_request": {
+      "next": "generate_chapter_descriptions"
+    },
+    "generate_chapter_descriptions": {
+      "next": "write_chapters"
+    },
+    "write_chapters": {
+      "next": null
+    }
+  },
+  "final_outputs": {
+    "outline": "generate_chapter_descriptions.chapter_descriptions",
+    "story": "write_chapters.full_story_content",
+    "source_topic": "parse_user_request.topic"
+  }
+}
