@@ -1,65 +1,89 @@
 {
-  "pipeline_name": "AI-Content-Generation-Pipeline",
-  "initial_input": "Write a 4-chapter sci-fi story for adults about a rogue AI on Mars that develops a sense of humor. The mood should be dark but witty.",
-  "start_agent": "parse_user_request",
+  "pipeline_name": "Grep-Command-Distro-Comparison-Docs",
+  "initial_input": "for the grep command, research the differencees between the solaris distro and centos distro for this command, then provide accurate usage docs for each",
+  "start_agent": "parse_request",
   "agents": [
     {
-      "id": "parse_user_request",
+      "id": "parse_request",
       "type": "tool_agent",
       "tool_name": "StructuredDataParserTool",
       "description": "Parses user message into structured content parameters.",
       "inputs": {
         "natural_language_request": "pipeline.initial_input"
       },
-      "outputs": [ "title", "topic", "mood", "num_chapters" ],
+      "outputs": [
+        "command",
+        "distro1",
+        "distro2"
+      ],
       "tool_config": {
         "model": "phi4:latest",
-        "instructions": "The user wants to write a story. Extract the title, topic, mood, and number of chapters from their request."
+        "instructions": "The user wants to research a command differences between two Linux distributions and get documentation for each. Extract the command and the two distribution names."
       }
     },
     {
-      "id": "generate_chapter_descriptions",
+      "id": "research_differences",
       "type": "llm_agent",
       "model": "phi4:latest",
-      "description": "Generates descriptions for each chapter.",
-      "prompt_template": "The story is about '{topic}' with a '{mood}' mood. Generate a creative, one-sentence description for each of the {num_chapters} chapters. Respond with a list. Do not write anything else.",
+      "description": "Researches and summarizes the differences in the specified command between two distributions.",
+      "prompt_template": "What are the key differences and similarities in the usage and features of the '{command}' command between the '{distro1}' and '{distro2}' distributions? Focus on common options and behaviors. Provide a concise summary.",
       "inputs": {
-        "topic": "parse_user_request.topic",
-        "mood": "parse_user_request.mood",
-        "num_chapters": "parse_user_request.num_chapters"
+        "command": "parse_request.command",
+        "distro1": "parse_request.distro1",
+        "distro2": "parse_request.distro2"
       },
-      "outputs": [ "chapter_descriptions" ],
-      "output_format": "list"
+      "outputs": [
+        "differences_summary"
+      ]
     },
     {
-      "id": "write_chapters",
+      "id": "generate_solaris_docs",
       "type": "llm_agent",
       "model": "phi4:latest",
-      "description": "Writes the content for each chapter.",
-      "prompt_template": "You are a master storyteller. Write the full content for a story titled '{title}'. The topic is '{topic}' and the mood is '{mood}'. Use the following chapter descriptions as a strict outline: {chapter_descriptions}.",
+      "description": "Generates usage documentation for the command on Solaris.",
+      "prompt_template": "Provide accurate usage documentation, including common examples, for the '{command}' command as it is typically used on the '{distro}' distribution. Mention any specific points from the following summary of differences if relevant: {differences}.",
       "inputs": {
-        "title": "parse_user_request.title",
-        "topic": "parse_user_request.topic",
-        "mood": "parse_user_request.mood",
-        "chapter_descriptions": "generate_chapter_descriptions.chapter_descriptions"
+        "command": "parse_request.command",
+        "distro": "parse_request.distro1",
+        "differences": "research_differences.differences_summary"
       },
-      "outputs": [ "full_story_content" ]
+      "outputs": [
+        "solaris_usage_docs"
+      ]
+    },
+    {
+      "id": "generate_centos_docs",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Generates usage documentation for the command on CentOS.",
+      "prompt_template": "Provide accurate usage documentation, including common examples, for the '{command}' command as it is typically used on the '{distro}' distribution. Mention any specific points from the following summary of differences if relevant: {differences}.",
+      "inputs": {
+        "command": "parse_request.command",
+        "distro": "parse_request.distro2",
+        "differences": "research_differences.differences_summary"
+      },
+      "outputs": [
+        "centos_usage_docs"
+      ]
     }
   ],
   "routing": {
-    "parse_user_request": {
-      "next": "generate_chapter_descriptions"
+    "parse_request": {
+      "next": "research_differences"
     },
-    "generate_chapter_descriptions": {
-      "next": "write_chapters"
+    "research_differences": {
+      "next": "generate_solaris_docs"
     },
-    "write_chapters": {
+    "generate_solaris_docs": {
+      "next": "generate_centos_docs"
+    },
+    "generate_centos_docs": {
       "next": null
     }
   },
   "final_outputs": {
-    "outline": "generate_chapter_descriptions.chapter_descriptions",
-    "story": "write_chapters.full_story_content",
-    "source_topic": "parse_user_request.topic"
+    "difference_summary": "research_differences.differences_summary",
+    "solaris_documentation": "generate_solaris_docs.solaris_usage_docs",
+    "centos_documentation": "generate_centos_docs.centos_usage_docs"
   }
 }
