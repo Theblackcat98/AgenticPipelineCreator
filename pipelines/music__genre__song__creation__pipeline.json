@@ -1,0 +1,99 @@
+{
+  "pipeline_name": "MusicGenreSongCreationPipeline",
+  "initial_input": {
+    "iteration_count": 4
+  },
+  "start_agent": "choose_genre",
+  "agents": [
+    {
+      "id": "choose_genre",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Selects a music genre.",
+      "prompt_template": "Choose a music genre from the following list: Pop, Rock, Jazz, Classical, Hip-Hop. Respond with one genre.",
+      "inputs": {},
+      "outputs": [
+        "genre"
+      ],
+      "output_format": "string"
+    },
+    {
+      "id": "choose_song_title",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Chooses a song title based on the selected genre.",
+      "prompt_template": "Based on the genre '{genre}', choose an appropriate song title. Respond with one title.",
+      "inputs": {
+        "genre": "choose_genre.genre"
+      },
+      "outputs": [
+        "song_title"
+      ],
+      "output_format": "string"
+    },
+    {
+      "id": "create_lyrics",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Creates lyrics for the song based on its title and genre.",
+      "prompt_template": "Create lyrics for a song titled '{song_title}' in the {genre} genre. Respond with the full lyrics.",
+      "inputs": {
+        "song_title": "choose_song_title.song_title",
+        "genre": "choose_genre.genre"
+      },
+      "outputs": [
+        "lyrics"
+      ],
+      "output_format": "string"
+    },
+    {
+      "id": "repeat_process",
+      "type": "tool_agent",
+      "tool_name": "ConditionalRouterTool",
+      "description": "Repeats the song creation process and collects the results.",
+      "inputs": {
+        "iteration_count": "pipeline.initial_input.iteration_count",
+        "genre": "choose_genre.genre",
+        "song_title": "choose_song_title.song_title",
+        "lyrics": "create_lyrics.lyrics"
+      },
+      "outputs": [
+        "genres",
+        "song_titles",
+        "lyrics_list"
+      ],
+      "tool_config": {
+        "loop_config": {
+          "total_iterations_from": "iteration_count",
+          "loop_body_start_id": "choose_genre",
+          "counter_name": "music_creation_loop_counter",
+          "accumulators": {
+            "genres": "genre",
+            "song_titles": "song_title",
+            "lyrics_list": "lyrics"
+          }
+        },
+        "else_execute_step": null
+      }
+    }
+  ],
+  "routing": {
+    "choose_genre": {
+      "next": "choose_song_title"
+    },
+    "choose_song_title": {
+      "next": "create_lyrics"
+    },
+    "create_lyrics": {
+      "next": "repeat_process"
+    },
+    "repeat_process": {
+      "next": null
+    }
+  },
+  "final_outputs": {
+    "genres": "repeat_process.genres",
+    "song_titles": "repeat_process.song_titles",
+    "lyrics_list": "repeat_process.lyrics_list"
+  }
+}

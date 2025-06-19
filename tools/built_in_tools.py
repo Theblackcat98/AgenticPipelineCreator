@@ -131,15 +131,15 @@ class ConditionalRouterTool(BaseTool):
     def execute(self, inputs: dict, config: dict, pipeline_state: dict, **kwargs) -> dict:
         """
         Directs execution flow. It can act as a simple conditional branch or
-        as a stateful loop controller.
+        as a stateful loop controller with data aggregation.
 
         Looping Logic:
         - The tool checks for a 'loop_config' in its configuration.
-        - It uses the 'pipeline_state' to track the loop's counter.
-        - It initializes the counter from its 'inputs' if not already in the state.
-        - On each run, it increments the counter and compares it to the total iterations.
-        - It returns '_next_step_id' to control the loop and '_update_state'
-          to persist the counter's new value.
+        - It uses 'pipeline_state' to track the loop's counter and accumulated data.
+        - It initializes the counter and accumulator lists if they are not in the state.
+        - On each run, it appends data to the lists, increments the counter, and
+          determines the next step.
+        - When the loop finishes, it returns the aggregated data lists.
         """
         loop_config = config.get("loop_config")
 
@@ -148,28 +148,55 @@ class ConditionalRouterTool(BaseTool):
             total_iterations_key = loop_config.get("total_iterations_from")
             loop_body_start_id = loop_config.get("loop_body_start_id")
             counter_name = loop_config.get("counter_name")
+            accumulators = loop_config.get("accumulators", {})
 
-            # Initialize counter from inputs if not in pipeline_state
+            # Initialize counter and accumulators in pipeline_state if not present
             if counter_name not in pipeline_state:
-                initial_count = inputs.get(counter_name.split('.')[-1], 0)
-                pipeline_state[counter_name] = initial_count
-
+                pipeline_state[counter_name] = 0
+            for key in accumulators.keys():
+                if key not in pipeline_state:
+                    pipeline_state[key] = []
+            
             current_count = pipeline_state.get(counter_name, 0)
             total_iterations = inputs.get(total_iterations_key)
 
             if total_iterations is None:
                 raise ValueError(f"Looping error: Total iterations key '{total_iterations_key}' not found in inputs.")
 
+            # --- Data Aggregation ---
+            # This happens before the check, so on the first run (count=0), it still collects initial data.
+            updated_state = {}
+            for output_key, input_source in accumulators.items():
+                if input_source in inputs:
+                    # Ensure the list exists before appending
+                    if output_key not in pipeline_state:
+                        pipeline_state[output_key] = []
+                    
+                    # Append the new value to the list
+                    new_list = pipeline_state[output_key] + [inputs[input_source]]
+                    updated_state[output_key] = new_list
+                else:
+                    # If an expected input is missing, you might want to handle it,
+                    # e.g., by appending a null value or raising an error.
+                    # Here, we'll just note it and continue.
+                    print(f"Warning: Accumulator source '{input_source}' not found in inputs for '{output_key}'.")
+
+
+            # --- Loop Control ---
             if current_count < total_iterations:
                 # Continue loop: increment counter and go to loop body
                 next_count = current_count + 1
+                updated_state[counter_name] = next_count
                 return {
                     "_next_step_id": loop_body_start_id,
-                    "_update_state": {counter_name: next_count}
+                    "_update_state": updated_state
                 }
             else:
-                # End loop: proceed to the step after the loop
-                return {"_next_step_id": config.get("else_execute_step"), "_update_state": {}}
+                # End loop: return aggregated data and proceed to the next step
+                final_output = {"_next_step_id": config.get("else_execute_step")}
+                for key in accumulators.keys():
+                    final_output[key] = pipeline_state.get(key, [])
+                return final_output
 
         # --- Standard Conditional Routing ---
         condition_groups = config.get("condition_groups", [])

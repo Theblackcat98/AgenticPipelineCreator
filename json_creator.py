@@ -90,62 +90,81 @@ The JSON object MUST strictly follow the structure and schema exemplified below.
 JSON Schema Example (use this exact structure, ensuring all described fields are present if applicable):
 ```json
 {USER_JSON_PIPELINE_TEMPLATE}
+```
 
 Critical JSON Formatting Rules:
-
-    The entire response MUST be ONLY the JSON object. Do not include any introductory text, explanations, apologies, or markdown formatting (like ```json) around the JSON object itself.
-
-    Ensure all string values are enclosed in double quotes (e.g., "value").
-
-    All keys must be enclosed in double quotes (e.g., "key").
-
-    Ensure commas are correctly placed:
-
-        Between key-value pairs in an object (e.g., {{"key1": "value1", "key2": "value2"}}).
-
-        Between elements in an array (e.g., ["item1", "item2"]).
-
-    There must NOT be any trailing commas after the last element in an object or array.
-
-    All curly braces {{{{}}}} for objects and square brackets [] for arrays must be correctly paired and nested.
-
-    Pay very close attention to escaping special characters within strings if necessary (e.g., for regex patterns in tool_config, a newline character should be represented as '\\\\n').
+- The entire response MUST be ONLY the JSON object. Do not include any introductory text, explanations, or markdown formatting.
+- All keys and string values must be enclosed in double quotes.
+- No trailing commas in objects or arrays.
+- All braces `{{}}` and brackets `[]` must be correctly paired.
 
 Key considerations when generating the JSON content:
 
-    pipeline_name: Infer a descriptive name for the pipeline (e.g., "Customer-Inquiry-Processing").
+1.  **`pipeline_name`**: Infer a descriptive, CamelCase name (e.g., "CustomerInquiryProcessing").
+2.  **`initial_input`**: (Optional) Initial data for the pipeline.
+3.  **`start_agent`**: The `id` of the first agent in the `agents` list.
+4.  **`agents`**: A list of agent objects.
+    *   **`id`**: Unique, snake_case ID (e.g., `parse_data`).
+    *   **`type`**: `llm_agent` or `tool_agent`.
+    *   **`description`**: Concise agent purpose.
+    *   **`inputs`**: A dictionary mapping input names to their sources (e.g., `{{"topic": "parse_request.topic"}}`). For the first agent, use `"pipeline.initial_input"`.
+    *   **`outputs`**: A list of output names (e.g., `["summary", "category"]`).
+    *   **For `llm_agent`**:
+        *   `model`: e.g., "{OLLAMA_MODEL}".
+        *   `prompt_template`: Use `{{variable}}` for placeholders.
+        *   `output_format`: (Optional) "list", "json", "string".
+    *   **For `tool_agent`**:
+        *   `tool_name`: Choose from "RegexParserTool", "StructuredDataParserTool", "CodeExecutionTool", "ConditionalRouterTool", "DataAggregatorTool".
+        *   `tool_config`: Configuration for the tool. See details below.
 
-    initial_input: (Optional) If the user's request implies an initial piece of data for the pipeline, include it here as a string.
+5.  **Tool-Specific `tool_config` Instructions**:
 
-    start_agent: Must be the ID of the first agent. This ID must exist in the 'agents' list.
+    *   **`StructuredDataParserTool`**:
+        *   `model`: The LLM to use for parsing (e.g., "{OLLAMA_MODEL}").
+        *   `instructions`: A clear command for the LLM (e.g., "Extract the user's name and email.").
 
-    agents:
+    *   **`ConditionalRouterTool` for Looping with Data Aggregation**:
+        *   This is the most complex tool. Use it to repeat a set of agents and collect their outputs.
+        *   **`loop_config`**:
+            *   `total_iterations_from`: The input source that specifies the number of loops (e.g., `"parse_request.num_items"`).
+            *   `loop_body_start_id`: The `id` of the first agent inside the loop.
+            *   `counter_name`: A unique name for the internal loop counter (e.g., `"loop_counter"`).
+            *   `accumulators`: A dictionary to collect data.
+                *   The **key** is the name of the final output list (e.g., `"all_summaries"`).
+                *   The **value** is the input source to collect on each iteration (e.g., `"summarize_step.summary"`).
+        *   **Example `ConditionalRouterTool` Agent**:
+            ```json
+            {{
+              "id": "loop_controller",
+              "type": "tool_agent",
+              "tool_name": "ConditionalRouterTool",
+              "description": "Repeats the summary process and collects all summaries.",
+              "inputs": {{
+                "num_items": "parse_request.num_items",
+                "summary": "summarize_step.summary"
+              }},
+              "outputs": ["all_summaries"],
+              "tool_config": {{
+                "loop_config": {{
+                  "total_iterations_from": "num_items",
+                  "loop_body_start_id": "summarize_step",
+                  "counter_name": "summary_loop_counter",
+                  "accumulators": {{
+                    "all_summaries": "summary"
+                  }}
+                }},
+                "else_execute_step": null
+              }}
+            }}
+            ```
 
-        id: Unique, descriptive, snake_case IDs (e.g., 'parse_data', 'summarize_text').
+6.  **`routing`**:
+    *   Each agent `id` must be a key.
+    *   `next`: The `id` of the next agent, or `null` if it's the end.
+    *   For a loop, the last agent in the loop body should route back to the `ConditionalRouterTool` agent.
 
-        type: 'tool_agent' or 'llm_agent'.
-
-        tool_name / model:
-
-            'tool_agent': Conceptual 'tool_name' (Choose from: "RegexParserTool", "StructuredDataParserTool", "CodeExecutionTool", "ConditionalRouterTool", "DataAggregatorTool").
-
-            'llm_agent': Use a placeholder model like "phi4:latest" or the specific model if provided (e.g., "{OLLAMA_MODEL}").
-
-        description: Concise agent purpose.
-
-        inputs: For the first agent, if 'initial_input' is present in the pipeline, its input can be "pipeline.initial_input". Otherwise, it could be a placeholder like "User query". For other agents, reference outputs like 'previous_agent_id.output_name'. Ensure referenced IDs and outputs exist.
-
-        outputs: List of output names (strings).
-
-        tool_config: (Required for 'tool_agent') Conceptual config. For "StructuredDataParserTool", include 'model' and 'instructions'. For "RegexParserTool", include 'patterns'. If not specified, use {{{{}}}}.
-
-        prompt_template: (Required for 'llm_agent') Template for the prompt. Use single curly braces for variables, like 'A story about {{topic}}'.
-
-        output_format: (Optional for 'llm_agent') Can be "list", "json", "string", etc.
-
-    routing: Each agent ID from 'agents' must be a key. 'next' is a subsequent agent ID or 'null'. Ensure all IDs are consistent.
-
-    final_outputs: (Optional) A dictionary specifying which agent outputs should be considered the final results of the pipeline, e.g., {{"final_summary": "summarize_text_agent.summary"}}.
+7.  **`final_outputs`**:
+    *   A dictionary mapping a descriptive name to a final output from an agent (e.g., `{{"Final Report": "loop_controller.all_summaries"}}`).
 
 User's pipeline description:
 "{natural_language_input}"
