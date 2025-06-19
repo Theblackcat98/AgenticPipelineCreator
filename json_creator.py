@@ -190,41 +190,49 @@ Generate ONLY the JSON object.
     except Exception as e:
         error_message = f"Failed to generate pipeline from Ollama: {type(e).__name__} - {e}. Raw response (if available): '{raw_response_text}'"
         raise RuntimeError(error_message) from e
-if __name__ == "__main__":
+def create_and_save_pipeline() -> str:
+    """
+    Guides the user through creating a pipeline from natural language,
+    generates the JSON, saves it, and returns the file path.
+
+    Returns:
+        The path to the newly created pipeline JSON file.
+    """
     # --- 1. Get User Input ---
-    print("🚀 Welcome to the AI Pipeline JSON Generator!")
-    print("Please describe the pipeline you want to create.")
+    print("🚀 Let's create a new AI Pipeline.")
+    print("Please describe the pipeline you want to build in plain English:")
     natural_language_input = input("> ")
 
-    # --- 2. Generate the Pipeline JSON ---
+    # --- 2. Generate and Save ---
     try:
         print("\nGenerating pipeline configuration...")
         pipeline_json = generate_pipeline_json_python(natural_language_input)
         
-        # --- 3. Pretty-Print the Output to Console ---
-        print("\n✅ Successfully generated pipeline configuration:")
-        print("-" * 50)
-        print(json.dumps(pipeline_json, indent=2))
-        print("-" * 50)
-
-        # --- 4. Save the Output to a File ---
-        # Create the 'pipelines' directory if it doesn't exist
+        # --- 3. Save the Output to a File ---
         output_dir = "pipelines"
         os.makedirs(output_dir, exist_ok=True)
 
-        # Sanitize the pipeline name to create a valid filename
         pipeline_name = pipeline_json.get("pipeline_name", "untitled_pipeline")
-        # Replace non-alphanumeric characters with underscores
         sanitized_name = re.sub(r'[^a-zA-Z0-9_]', '_', pipeline_name)
-        # Convert to snake_case
         snake_case_name = re.sub(r'(?<!^)(?=[A-Z])', '_', sanitized_name).lower()
         output_filename = f"{snake_case_name}.json"
-        
         output_path = os.path.join(output_dir, output_filename)
 
         with open(output_path, "w") as f:
             json.dump(pipeline_json, f, indent=2)
+            
         print(f"\n✅ Configuration saved to '{output_path}'")
+        return output_path
 
     except (ValueError, RuntimeError) as e:
-        print(f"\n❌ An error occurred: {e}")
+        print(f"\n❌ An error occurred during pipeline creation: {e}")
+        raise  # Re-raise the exception to be handled by the caller if needed
+
+
+if __name__ == "__main__":
+    # This allows the script to be run standalone for testing or manual creation.
+    try:
+        create_and_save_pipeline()
+    except (ValueError, RuntimeError):
+        # The error is already printed, so we can just exit gracefully.
+        pass

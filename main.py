@@ -2,31 +2,38 @@ import json
 import sys
 
 from orchestrator import Orchestrator
+from json_creator import create_and_save_pipeline
 
 def main():
     """
     The main entrypoint for the Agentic Pipeline Framework.
 
-    This script acts as a generic runner. It expects a single argument:
-    the path to a pipeline configuration JSON file.
-
-    It performs three main actions:
-    1. Loads the specified pipeline configuration.
-    2. Executes the pipeline using the Orchestrator.
-    3. Displays the final, user-defined outputs from the pipeline.
+    This script provides a unified workflow:
+    - If a config path is provided, it runs that pipeline.
+    - If no path is provided, it guides the user to create a new pipeline.
+    
+    It then executes the selected pipeline and displays the final results.
     """
+    config_path = ""
     
-    # --- 1. Get and Load Pipeline Configuration ---
-    if len(sys.argv) != 2:
-        print("Usage: python main.py <path_to_pipeline_config.json>")
-        sys.exit(1)
-        
-    config_path = sys.argv[1]
-    
+    # --- 1. Determine Pipeline Configuration ---
+    if len(sys.argv) > 1:
+        # Use a provided configuration file
+        config_path = sys.argv[1]
+        print(f"▶️  Running pipeline from specified file: '{config_path}'")
+    else:
+        # Guide the user to create a new pipeline
+        try:
+            config_path = create_and_save_pipeline()
+        except (ValueError, RuntimeError):
+            print("\nPipeline creation failed. Exiting.")
+            sys.exit(1)
+
+    # --- 2. Load and Validate Configuration ---
     try:
         with open(config_path, "r") as f:
             config = json.load(f)
-        print(f"✅ Successfully loaded pipeline configuration from '{config_path}'")
+        print(f"✅ Successfully loaded pipeline: '{config.get('pipeline_name', 'N/A')}'")
     except FileNotFoundError:
         print(f"❌ Error: Configuration file not found at '{config_path}'.")
         sys.exit(1)
@@ -34,22 +41,22 @@ def main():
         print(f"❌ Error: The file at '{config_path}' is not valid JSON.")
         sys.exit(1)
         
-    # --- 2. Extract Initial Input and Instantiate Orchestrator ---
-    initial_input = config.get("initial_input")
-    if initial_input is None:
-        print("❌ Error: The configuration file must contain an 'initial_input' key.")
-        sys.exit(1)
+    # --- 3. Instantiate Orchestrator and Run Pipeline ---
+    # The 'initial_input' is now handled flexibly by the orchestrator.
+    # If it's not in the config, the user will be prompted.
+    initial_input = config.get("initial_input", "") # Pass empty string if not present
 
     orchestrator = Orchestrator(config)
-    
-    # --- 3. Run the Pipeline ---
     final_state = orchestrator.run(initial_input=initial_input)
     
     # --- 4. Extract and Display Final Outputs ---
     final_results = orchestrator.get_final_outputs(final_state)
 
     print("\n" + "="*50)
-    print("                FINAL PIPELINE OUTPUTS")
+    print("                ┏┓•    ┓•      ┏┓")         
+    print("                ┃┃┓┏┓┏┓┃┓┏┓┏┓  ┃┃┓┏╋┏┓┓┏╋•")
+    print("                ┣┛┗┣┛┗ ┗┗┛┗┗   ┗┛┗┻┗┣┛┗┻┗•")
+    print("                   ┛                ┛     ")
     print("="*50)
 
     if not final_results:
@@ -61,7 +68,9 @@ def main():
                 for item in value:
                     print(f"  - {item}")
             elif isinstance(value, str):
-                print(f"  {value}")
+                # Nicely format multi-line string outputs
+                for line in value.split('\n'):
+                    print(f"  {line}")
             else:
                 print(f"  {json.dumps(value, indent=2)}")
                 

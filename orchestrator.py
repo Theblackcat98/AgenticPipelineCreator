@@ -38,6 +38,7 @@ class Orchestrator:
     def _resolve_inputs(self, inputs_config: Dict[str, str], state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Resolves an agent's input dependencies from the central pipeline state.
+        If an input is not found, it interactively prompts the user for the value.
 
         Args:
             inputs_config (dict): The "inputs" block from an agent's config.
@@ -48,15 +49,18 @@ class Orchestrator:
         """
         resolved_inputs = {}
         for local_name, source_path in inputs_config.items():
-            try:
-                # e.g., source_path = "parse_user_request.topic"
-                value = state[source_path]
-                resolved_inputs[local_name] = value
-            except KeyError:
-                raise ValueError(
-                    f"Could not resolve input '{local_name}'. "
-                    f"Source '{source_path}' not found in pipeline state."
-                )
+            if source_path not in state:
+                # --- Interactive Input ---
+                # If the required input is not in the state, prompt the user.
+                print(f"🟡 Input needed for '{local_name}'.")
+                user_value = input(f"Please provide a value for '{source_path}': ")
+                
+                # Update the central state so other agents can use this value
+                state[source_path] = user_value
+                
+            # Resolve the value from the (potentially updated) state
+            resolved_inputs[local_name] = state[source_path]
+            
         return resolved_inputs
 
     def _parse_llm_list_output(self, text: str) -> List[str]:
