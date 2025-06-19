@@ -42,21 +42,15 @@ def main():
         sys.exit(1)
         
     # --- 3. Instantiate Orchestrator and Run Pipeline ---
-    # The 'initial_input' is now handled flexibly by the orchestrator.
-    # If it's not in the config, the user will be prompted.
-    initial_input = config.get("initial_input", "") # Pass empty string if not present
-
     orchestrator = Orchestrator(config)
-    final_state = orchestrator.run(initial_input=initial_input)
-    
+    # The run method now manages its own state, including initial input.
+    final_state = orchestrator.run()
+
     # --- 4. Extract and Display Final Outputs ---
     final_results = orchestrator.get_final_outputs(final_state)
 
     print("\n" + "="*50)
-    print("                ┏┓•    ┓•      ┏┓")         
-    print("                ┃┃┓┏┓┏┓┃┓┏┓┏┓  ┃┃┓┏╋┏┓┓┏╋•")
-    print("                ┣┛┗┣┛┗ ┗┗┛┗┗   ┗┛┗┻┗┣┛┗┻┗•")
-    print("                   ┛                ┛     ")
+    print("                FINAL PIPELINE OUTPUTS")
     print("="*50)
 
     if not final_results:

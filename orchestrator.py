@@ -49,16 +49,18 @@ class Orchestrator:
         """
         resolved_inputs = {}
         for local_name, source_path in inputs_config.items():
-            if source_path not in state:
-                # --- Interactive Input ---
-                # If the required input is not in the state, prompt the user.
+            # --- Enhanced Interactive Input ---
+            # Prompt the user if the input is missing, None, or an empty string.
+            if source_path not in state or not state[source_path]:
                 print(f"🟡 Input needed for '{local_name}'.")
-                user_value = input(f"Please provide a value for '{source_path}': ")
+                # Provide a clear prompt to the user.
+                prompt_message = f"Please provide the '{source_path.replace('_', ' ')}': "
+                user_value = input(prompt_message)
                 
-                # Update the central state so other agents can use this value
+                # Update the central state so this value can be used by other agents.
                 state[source_path] = user_value
                 
-            # Resolve the value from the (potentially updated) state
+            # Resolve the value from the (potentially updated) state.
             resolved_inputs[local_name] = state[source_path]
             
         return resolved_inputs
@@ -80,16 +82,17 @@ class Orchestrator:
         # Filter out any empty strings that result from the splitting process
         return [item.strip() for item in items if item.strip()]
 
-    def run(self, initial_input: str) -> Dict[str, Any]:
+    def run(self) -> Dict[str, Any]:
         """
         Executes the entire pipeline from the start agent to the end.
-
-        Args:
-            initial_input (str): The initial data to feed into the pipeline.
+        It manages the pipeline state and orchestrates agent execution.
 
         Returns:
             The complete, final pipeline state dictionary.
         """
+        # The initial input from the config is used to seed the state.
+        # If it's missing or empty, _resolve_inputs will prompt the user later.
+        initial_input = self.config.get("initial_input", "")
         pipeline_state = {"pipeline.initial_input": initial_input}
         current_agent_id = self.start_agent_id
         
