@@ -158,7 +158,7 @@ class ConditionalRouterTool(BaseTool):
                     pipeline_state[key] = []
             
             current_count = pipeline_state.get(counter_name, 0)
-            total_iterations = inputs.get(total_iterations_key)
+            total_iterations = int(inputs.get(total_iterations_key))
 
             if total_iterations is None:
                 raise ValueError(f"Looping error: Total iterations key '{total_iterations_key}' not found in inputs.")

@@ -44,6 +44,26 @@ class Orchestrator:
             "DataAggregatorTool": DataAggregatorTool()
         }
 
+    def _get_value_from_path(self, data: Dict[str, Any], path: str) -> Any:
+        """
+        Retrieves a value from a nested dictionary using a dot-separated path.
+        
+        Args:
+            data (dict): The dictionary to search.
+            path (str): The dot-separated path (e.g., "agent_1.output.data").
+            
+        Returns:
+            The value at the specified path, or None if not found.
+        """
+        keys = path.split('.')
+        value = data
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            else:
+                return None
+        return value
+
     def _resolve_inputs(self, inputs_config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Resolves an agent's input dependencies from the pipeline state or uses literal values.
@@ -58,28 +78,28 @@ class Orchestrator:
         """
         resolved_inputs = {}
         for local_name, source_path_or_value in inputs_config.items():
-            # --- Differentiated Input Resolution ---
-            # If the value from the config is not a string, it's a literal.
             if not isinstance(source_path_or_value, str):
                 resolved_inputs[local_name] = source_path_or_value
                 continue
 
-            # Otherwise, it's a string representing a path to a value in the state.
             source_path = source_path_or_value
             
-            # --- Enhanced Interactive Input ---
-            # Prompt the user only if the state key is completely missing.
-            if source_path not in state:
+            # --- Dot-Notation State Access ---
+            # Use the helper to try and resolve the path from the state.
+            value = self._get_value_from_path(state, source_path)
+            
+            if value is None:
+                # --- Enhanced Interactive Input ---
+                # Prompt the user only if the state key is completely missing.
                 print(f"🟡 Input needed for '{local_name}'.")
-                # Provide a clear prompt to the user.
                 prompt_message = f"Please provide the '{source_path.replace('_', ' ')}': "
                 user_value = input(prompt_message)
                 
                 # Update the central state so this value can be used by other agents.
                 state[source_path] = user_value
+                value = user_value
                 
-            # Resolve the value from the (potentially updated) state.
-            resolved_inputs[local_name] = state[source_path]
+            resolved_inputs[local_name] = value
             
         return resolved_inputs
 
