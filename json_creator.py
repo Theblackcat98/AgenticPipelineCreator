@@ -208,10 +208,23 @@ if __name__ == "__main__":
         print("-" * 50)
 
         # --- 4. Save the Output to a File ---
-        output_filename = "pipeline_config2.json"
-        with open(output_filename, "w") as f:
+        # Create the 'pipelines' directory if it doesn't exist
+        output_dir = "pipelines"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Sanitize the pipeline name to create a valid filename
+        pipeline_name = pipeline_json.get("pipeline_name", "untitled_pipeline")
+        # Replace non-alphanumeric characters with underscores
+        sanitized_name = re.sub(r'[^a-zA-Z0-9_]', '_', pipeline_name)
+        # Convert to snake_case
+        snake_case_name = re.sub(r'(?<!^)(?=[A-Z])', '_', sanitized_name).lower()
+        output_filename = f"{snake_case_name}.json"
+        
+        output_path = os.path.join(output_dir, output_filename)
+
+        with open(output_path, "w") as f:
             json.dump(pipeline_json, f, indent=2)
-        print(f"\n✅ Configuration saved to '{output_filename}'")
+        print(f"\n✅ Configuration saved to '{output_path}'")
 
     except (ValueError, RuntimeError) as e:
         print(f"\n❌ An error occurred: {e}")
