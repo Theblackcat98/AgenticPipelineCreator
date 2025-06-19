@@ -149,6 +149,7 @@ class ConditionalRouterTool(BaseTool):
             loop_body_start_id = loop_config.get("loop_body_start_id")
             counter_name = loop_config.get("counter_name")
             accumulators = loop_config.get("accumulators", {})
+            loop_body_agents = loop_config.get("loop_body_agents", [])
 
             # Initialize counter and accumulators in pipeline_state if not present
             if counter_name not in pipeline_state:
@@ -189,7 +190,8 @@ class ConditionalRouterTool(BaseTool):
                 updated_state[counter_name] = next_count
                 return {
                     "_next_step_id": loop_body_start_id,
-                    "_update_state": updated_state
+                    "_update_state": updated_state,
+                    "_clear_agent_outputs": loop_body_agents
                 }
             else:
                 # End loop: return aggregated data and proceed to the next step

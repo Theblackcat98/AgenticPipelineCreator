@@ -84,21 +84,34 @@ class Orchestrator:
 
             source_path = source_path_or_value
             
-            # --- Dot-Notation State Access ---
-            # Use the helper to try and resolve the path from the state.
-            value = self._get_value_from_path(state, source_path)
-            
+            # --- Direct State Access ---
+            # --- Input Resolution Logic ---
+            # First, check for special pipeline-level inputs like initial config.
+            if source_path.startswith("pipeline.initial_input."):
+                # The path is targeting a nested value within the initial_input config.
+                # We need to extract the path within that object.
+                # e.g., "pipeline.initial_input.topic" -> "topic"
+                initial_input_path = ".".join(source_path.split('.')[2:])
+                initial_input_data = state.get("pipeline.initial_input", {})
+                value = self._get_value_from_path(initial_input_data, initial_input_path)
+            else:
+                # --- Direct State Access ---
+                # For all other inputs, access the main pipeline state directly.
+                # The pipeline state is a flat dictionary where keys are strings like
+                # "agent_id.output_name". Direct lookup is sufficient.
+                value = state.get(source_path)
+
             if value is None:
                 # --- Enhanced Interactive Input ---
-                # Prompt the user only if the state key is completely missing.
+                # If the value could not be found in the state, prompt the user.
                 print(f"🟡 Input needed for '{local_name}'.")
-                prompt_message = f"Please provide the '{source_path.replace('_', ' ')}': "
+                prompt_message = f"Please provide the value for '{source_path.replace('_', ' ')}': "
                 user_value = input(prompt_message)
-                
+
                 # Update the central state so this value can be used by other agents.
                 state[source_path] = user_value
                 value = user_value
-                
+
             resolved_inputs[local_name] = value
             
         return resolved_inputs
@@ -194,6 +207,24 @@ class Orchestrator:
             if '_update_state' in outputs:
                 pipeline_state.update(outputs['_update_state'])
             
+            # --- Clear Agent Outputs Instruction ---
+            # Check if the tool requested to clear the outputs of specific agents.
+            # This is used by the ConditionalRouterTool to force re-execution of branches.
+            if '_clear_agent_outputs' in outputs:
+                agent_ids_to_clear = outputs.get('_clear_agent_outputs', [])
+                if agent_ids_to_clear:
+                    keys_to_delete = set()
+                    for agent_id in agent_ids_to_clear:
+                        for state_key in pipeline_state:
+                            if state_key.startswith(f"{agent_id}."):
+                                keys_to_delete.add(state_key)
+                    
+                    if keys_to_delete:
+                        print(f"🧹 Clearing outputs for agents: {list(agent_ids_to_clear)}...")
+                        for key in keys_to_delete:
+                            if key in pipeline_state:
+                                del pipeline_state[key]
+
             # --- Dynamic Routing ---
             # Check if the tool's output has overridden the next step.
             # This is how the ConditionalRouterTool works.

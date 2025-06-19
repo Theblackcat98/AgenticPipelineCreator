@@ -10,7 +10,7 @@
       "type": "llm_agent",
       "model": "phi4:latest",
       "description": "Selects a music genre.",
-      "prompt_template": "Choose a music genre from the following list: Pop, Rock, Jazz, Classical, Hip-Hop. Respond with one genre.",
+      "prompt_template": "Choose a music genre. Respond with one genre.",
       "inputs": {},
       "outputs": [
         "genre"
@@ -66,6 +66,11 @@
         "loop_config": {
           "total_iterations_from": "iteration_count",
           "loop_body_start_id": "choose_genre",
+          "loop_body_agents": [
+            "choose_genre",
+            "choose_song_title",
+            "create_lyrics"
+          ],
           "counter_name": "music_creation_loop_counter",
           "accumulators": {
             "genres": "genre",
