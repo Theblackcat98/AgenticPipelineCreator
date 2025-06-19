@@ -78,7 +78,7 @@ graph TD
 The framework is run from the command line, with the path to your configuration file as the only argument.
 
 ```bash
-python main.py pipeline_config.json
+python main.py ./pipelines/pipeline_config.json
 ```
 
 This will execute the example content generation pipeline defined in the default `pipeline_config.json` file.

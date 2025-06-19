@@ -6,76 +6,39 @@
     {
       "id": "parse_email_content",
       "type": "tool_agent",
-      "tool_name": "EmailParserTool",
-      "description": "Parses the email content to extract sender and subject.",
+      "tool_name": "StructuredDataParserTool",
+      "description": "Parses the email content to extract sender, intent, and subject category.",
       "inputs": {
         "natural_language_request": "pipeline.initial_input"
       },
       "outputs": [
         "sender",
-        "subject"
+        "intent",
+        "subject_category"
       ],
       "tool_config": {
         "model": "phi4:latest",
-        "instructions": "Extract the sender's email address and the subject from the email content."
+        "instructions": "Extract the sender, detect the intent, and categorize the subject from the email content."
       }
-    },
-    {
-      "id": "detect_intent",
-      "type": "llm_agent",
-      "model": "phi4:latest",
-      "description": "Detects the intent of the email.",
-      "prompt_template": "Analyze the following email content to determine its intent. Email subject is '{subject}' and sender is '{sender}'.",
-      "inputs": {
-        "email_content": "parse_email_content.email_content",
-        "subject": "parse_email_content.subject",
-        "sender": "parse_email_content.sender"
-      },
-      "outputs": [
-        "intent"
-      ],
-      "output_format": "string"
-    },
-    {
-      "id": "categorize_subject",
-      "type": "llm_agent",
-      "model": "phi4:latest",
-      "description": "Categorizes the email subject.",
-      "prompt_template": "Categorize the following email subject. Subject is '{subject}'.",
-      "inputs": {
-        "subject": "parse_email_content.subject"
-      },
-      "outputs": [
-        "category"
-      ],
-      "output_format": "string"
     },
     {
       "id": "draft_response",
       "type": "llm_agent",
       "model": "phi4:latest",
-      "description": "Drafts a response based on the email's intent and category.",
-      "prompt_template": "Draft a professional response to an email with subject '{subject}', sender '{sender}', detected intent '{intent}', and categorized as '{category}'.",
+      "description": "Drafts a response based on the parsed email details.",
+      "prompt_template": "You are drafting an email response. The sender is '{sender}', the intent of their message is '{intent}', and the subject category is '{subject_category}'. Write a professional response.",
       "inputs": {
-        "subject": "parse_email_content.subject",
         "sender": "parse_email_content.sender",
-        "intent": "detect_intent.intent",
-        "category": "categorize_subject.category"
+        "intent": "parse_email_content.intent",
+        "subject_category": "parse_email_content.subject_category"
       },
       "outputs": [
         "response"
-      ],
-      "output_format": "string"
+      ]
     }
   ],
   "routing": {
     "parse_email_content": {
-      "next": "detect_intent"
-    },
-    "detect_intent": {
-      "next": "categorize_subject"
-    },
-    "categorize_subject": {
       "next": "draft_response"
     },
     "draft_response": {
@@ -84,8 +47,8 @@
   },
   "final_outputs": {
     "sender_info": "parse_email_content.sender",
-    "email_intent": "detect_intent.intent",
-    "subject_category": "categorize_subject.category",
-    "response_draft": "draft_response.response"
+    "intent_detected": "parse_email_content.intent",
+    "subject_category": "parse_email_content.subject_category",
+    "email_response": "draft_response.response"
   }
 }

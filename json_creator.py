@@ -127,7 +127,7 @@ Key considerations when generating the JSON content:
 
         tool_name / model:
 
-            'tool_agent': Conceptual 'tool_name' (e.g., "RegexParserTool", "StructuredDataParserTool").
+            'tool_agent': Conceptual 'tool_name' (Choose from: "RegexParserTool", "StructuredDataParserTool").
 
             'llm_agent': Use a placeholder model like "phi4:latest" or the specific model if provided (e.g., "{OLLAMA_MODEL}").
 
