@@ -4,6 +4,15 @@ import sys
 from orchestrator import Orchestrator
 from json_creator import create_and_save_pipeline
 
+RESET = "\033[0m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+BOLD = "\033[1m"
+
+
+
 def main():
     """
     The main entrypoint for the Agentic Pipeline Framework.
@@ -20,7 +29,7 @@ def main():
     if len(sys.argv) > 1:
         # Use a provided configuration file
         config_path = sys.argv[1]
-        print(f"▶️  Running pipeline from specified file: '{config_path}'")
+        print(f"{YELLOW}▶️  Running pipeline from specified file: '{config_path}' {RESET}")
     else:
         # Guide the user to create a new pipeline
         try:
@@ -33,12 +42,12 @@ def main():
     try:
         with open(config_path, "r") as f:
             config = json.load(f)
-        print(f"✅ Successfully loaded pipeline: '{config.get('pipeline_name', 'N/A')}'")
+        print(f"{GREEN}✅ Successfully loaded pipeline: '{config.get('pipeline_name', 'N/A')}'{RESET}")
     except FileNotFoundError:
-        print(f"❌ Error: Configuration file not found at '{config_path}'.")
+        print(f"{RED}❌ Error: Configuration file not found at '{config_path}'.{RESET}")
         sys.exit(1)
     except json.JSONDecodeError:
-        print(f"❌ Error: The file at '{config_path}' is not valid JSON.")
+        print(f"{RED}❌ Error: The file at '{config_path}' is not valid JSON.{RESET}")
         sys.exit(1)
         
     # --- 3. Instantiate Orchestrator and Run Pipeline ---
@@ -49,9 +58,13 @@ def main():
     # --- 4. Extract and Display Final Outputs ---
     final_results = orchestrator.get_final_outputs(final_state)
 
-    print("\n" + "="*50)
-    print("                FINAL PIPELINE OUTPUTS")
-    print("="*50)
+    print(f"""{GREEN}
+╭───────────────────────╮
+│                       │
+│     Final Output:     │
+│                       │
+╰───────────────────────╯
+{RESET}""")
 
     if not final_results:
         print("No final outputs were defined in the pipeline configuration.")
@@ -68,7 +81,7 @@ def main():
             else:
                 print(f"  {json.dumps(value, indent=2)}")
                 
-    print("\n" + "="*50)
+    print("\n" + f"{BLUE}="*50)
 
 if __name__ == "__main__":
     main()
