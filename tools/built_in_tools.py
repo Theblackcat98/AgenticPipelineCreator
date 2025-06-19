@@ -128,46 +128,78 @@ class ConditionalRouterTool(BaseTool):
     It returns a special '_next_step_id' output that the orchestrator can use
     to determine the next step.
     """
-    def execute(self, inputs: dict, config: dict, **kwargs) -> dict:
+    def execute(self, inputs: dict, config: dict, pipeline_state: dict, **kwargs) -> dict:
+        """
+        Directs execution flow. It can act as a simple conditional branch or
+        as a stateful loop controller.
+
+        Looping Logic:
+        - The tool checks for a 'loop_config' in its configuration.
+        - It uses the 'pipeline_state' to track the loop's counter.
+        - It initializes the counter from its 'inputs' if not already in the state.
+        - On each run, it increments the counter and compares it to the total iterations.
+        - It returns '_next_step_id' to control the loop and '_update_state'
+          to persist the counter's new value.
+        """
+        loop_config = config.get("loop_config")
+
+        # --- Stateful Looping Behavior ---
+        if loop_config:
+            total_iterations_key = loop_config.get("total_iterations_from")
+            loop_body_start_id = loop_config.get("loop_body_start_id")
+            counter_name = loop_config.get("counter_name")
+
+            # Initialize counter from inputs if not in pipeline_state
+            if counter_name not in pipeline_state:
+                initial_count = inputs.get(counter_name.split('.')[-1], 0)
+                pipeline_state[counter_name] = initial_count
+
+            current_count = pipeline_state.get(counter_name, 0)
+            total_iterations = inputs.get(total_iterations_key)
+
+            if total_iterations is None:
+                raise ValueError(f"Looping error: Total iterations key '{total_iterations_key}' not found in inputs.")
+
+            if current_count < total_iterations:
+                # Continue loop: increment counter and go to loop body
+                next_count = current_count + 1
+                return {
+                    "_next_step_id": loop_body_start_id,
+                    "_update_state": {counter_name: next_count}
+                }
+            else:
+                # End loop: proceed to the step after the loop
+                return {"_next_step_id": config.get("else_execute_step"), "_update_state": {}}
+
+        # --- Standard Conditional Routing ---
         condition_groups = config.get("condition_groups", [])
         else_step = config.get("else_execute_step")
 
         for group in condition_groups:
             if_condition = group.get("if", {})
             then_step = group.get("then_execute_step")
-
             variable = if_condition.get("variable")
             operator = if_condition.get("operator")
             value = if_condition.get("value")
 
-            if not all([variable, operator, value, then_step]):
-                continue # Skip malformed condition groups
+            if not all([variable, operator, then_step]):
+                continue
 
             actual_value = inputs.get(variable)
-
-            # Perform comparison
             match = False
-            if operator == "equals" and actual_value == value:
-                match = True
-            elif operator == "not_equals" and actual_value != value:
-                match = True
-            elif operator == "contains" and isinstance(actual_value, (str, list, dict)) and value in actual_value:
-                match = True
-            elif operator == "not_contains" and isinstance(actual_value, (str, list, dict)) and value not in actual_value:
-                match = True
-            elif operator == "gt" and isinstance(actual_value, (int, float)) and actual_value > value:
-                match = True
-            elif operator == "lt" and isinstance(actual_value, (int, float)) and actual_value < value:
-                match = True
+            if operator == "equals" and actual_value == value: match = True
+            elif operator == "not_equals" and actual_value != value: match = True
+            elif operator == "contains" and isinstance(actual_value, (str, list, dict)) and value in actual_value: match = True
+            elif operator == "not_contains" and isinstance(actual_value, (str, list, dict)) and value not in actual_value: match = True
+            elif operator == "gt" and isinstance(actual_value, (int, float)) and actual_value > value: match = True
+            elif operator == "lt" and isinstance(actual_value, (int, float)) and actual_value < value: match = True
 
             if match:
                 return {"_next_step_id": then_step}
 
-        # If no conditions matched, return the 'else' step
         if else_step:
             return {"_next_step_id": else_step}
 
-        # If no conditions matched and no 'else' is defined, return no override
         return {}
 
 
