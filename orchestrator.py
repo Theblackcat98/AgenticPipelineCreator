@@ -5,7 +5,13 @@ from typing import Callable, List, Dict, Any
 # --- Framework Dependencies ---
 # The orchestrator depends on the LLM client and the available built-in tools.
 from llm.ollama_client import invoke_llm
-from tools.built_in_tools import RegexParserTool, StructuredDataParserTool
+from tools.built_in_tools import (
+    RegexParserTool,
+    StructuredDataParserTool,
+    CodeExecutionTool,
+    ConditionalRouterTool,
+    DataAggregatorTool
+)
 
 
 class Orchestrator:
@@ -32,13 +38,16 @@ class Orchestrator:
         # makes tools available to the user.
         self.tool_registry = {
             "RegexParserTool": RegexParserTool(),
-            "StructuredDataParserTool": StructuredDataParserTool()
+            "StructuredDataParserTool": StructuredDataParserTool(),
+            "CodeExecutionTool": CodeExecutionTool(),
+            "ConditionalRouterTool": ConditionalRouterTool(),
+            "DataAggregatorTool": DataAggregatorTool()
         }
 
-    def _resolve_inputs(self, inputs_config: Dict[str, str], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolve_inputs(self, inputs_config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Resolves an agent's input dependencies from the central pipeline state.
-        If an input is not found, it interactively prompts the user for the value.
+        Resolves an agent's input dependencies from the pipeline state or uses literal values.
+        If a state reference is not found, it interactively prompts the user.
 
         Args:
             inputs_config (dict): The "inputs" block from an agent's config.
@@ -48,10 +57,19 @@ class Orchestrator:
             A dictionary of the resolved input values for the agent to use.
         """
         resolved_inputs = {}
-        for local_name, source_path in inputs_config.items():
+        for local_name, source_path_or_value in inputs_config.items():
+            # --- Differentiated Input Resolution ---
+            # If the value from the config is not a string, it's a literal.
+            if not isinstance(source_path_or_value, str):
+                resolved_inputs[local_name] = source_path_or_value
+                continue
+
+            # Otherwise, it's a string representing a path to a value in the state.
+            source_path = source_path_or_value
+            
             # --- Enhanced Interactive Input ---
-            # Prompt the user if the input is missing, None, or an empty string.
-            if source_path not in state or not state[source_path]:
+            # Prompt the user only if the state key is completely missing.
+            if source_path not in state:
                 print(f"🟡 Input needed for '{local_name}'.")
                 # Provide a clear prompt to the user.
                 prompt_message = f"Please provide the '{source_path.replace('_', ' ')}': "
@@ -144,8 +162,14 @@ class Orchestrator:
                 state_key = f"{current_agent_id}.{key}"
                 pipeline_state[state_key] = value
             
-            # Determine the next agent based on the routing rules
-            current_agent_id = self.routing.get(current_agent_id, {}).get("next")
+            # --- Dynamic Routing ---
+            # Check if the tool's output has overridden the next step.
+            # This is how the ConditionalRouterTool works.
+            if '_next_step_id' in outputs and outputs['_next_step_id']:
+                current_agent_id = outputs['_next_step_id']
+            else:
+                # Determine the next agent based on the static routing rules
+                current_agent_id = self.routing.get(current_agent_id, {}).get("next")
 
         print("\n🏁 Pipeline finished.")
         return pipeline_state
