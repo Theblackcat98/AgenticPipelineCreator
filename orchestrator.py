@@ -124,43 +124,55 @@ class Orchestrator:
             resolved_inputs = self._resolve_inputs(agent_config['inputs'], pipeline_state)
             
             outputs = {}
+            # --- Agent Execution Logic ---
+            # This logic determines how to execute the agent based on its type.
+            # It supports standard LLM agents, tool agents, and a more flexible
+            # format where the agent's type is the tool name itself.
             if agent_type == 'llm_agent':
                 prompt = agent_config['prompt_template'].format(**resolved_inputs)
                 llm_response = invoke_llm(agent_config['model'], prompt)
 
-                # Check for and apply special output formatting
                 if agent_config.get("output_format") == "list":
                     llm_response = self._parse_llm_list_output(llm_response)
-
-                # Assume single output for llm_agent for simplicity in this MVP
+                
                 output_key = agent_config['outputs'][0]
                 outputs = {output_key: llm_response}
-            
-            elif agent_type == 'tool_agent':
-                tool_name = agent_config['tool_name']
+
+            elif agent_type == 'tool_agent' or agent_type in self.tool_registry:
+                # If the type is 'tool_agent', get the name from 'tool_name'.
+                # Otherwise, the type itself is the tool name.
+                tool_name = agent_config['tool_name'] if agent_type == 'tool_agent' else agent_type
+                
                 if tool_name not in self.tool_registry:
                     raise ValueError(f"Unknown tool '{tool_name}'. Available tools: {list(self.tool_registry.keys())}")
                 
                 tool_instance = self.tool_registry[tool_name]
                 tool_config = agent_config.get('tool_config', {})
                 
-                # Execute the tool, providing it with necessary framework services
-                # like the LLM client and its own output specification.
+                # The 'pipeline_state' is passed to give tools read-only access
+                # to the current state, which is crucial for loop controllers.
                 outputs = tool_instance.execute(
                     inputs=resolved_inputs,
                     config=tool_config,
                     invoke_llm=invoke_llm,
-                    output_fields=agent_config.get('outputs', [])
+                    output_fields=agent_config.get('outputs', []),
+                    pipeline_state=pipeline_state
                 )
             else:
                 raise ValueError(f"Unsupported agent type: '{agent_type}'")
             
             print(f"✅ Agent '{current_agent_id}' produced outputs: {list(outputs.keys())}")
+            # --- State Management ---
             # Update the central state with the agent's outputs.
-            # This handles both single and multi-output tools.
             for key, value in outputs.items():
-                state_key = f"{current_agent_id}.{key}"
-                pipeline_state[state_key] = value
+                # Exclude special keys from being added to the main state namespace.
+                if key not in ['_next_step_id', '_update_state']:
+                    state_key = f"{current_agent_id}.{key}"
+                    pipeline_state[state_key] = value
+
+            # Handle direct state updates from tools like the router.
+            if '_update_state' in outputs:
+                pipeline_state.update(outputs['_update_state'])
             
             # --- Dynamic Routing ---
             # Check if the tool's output has overridden the next step.

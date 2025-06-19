@@ -46,7 +46,7 @@
     },
     {
       "id": "repeat_for_album",
-      "type": "ConditionalRouterTool",
+      "type": "tool_agent",
       "tool_name": "ConditionalRouterTool",
       "description": "Repeats the process to generate 8 songs for an album.",
       "inputs": {
