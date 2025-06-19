@@ -83,3 +83,111 @@ class StructuredDataParserTool(BaseTool):
         except json.JSONDecodeError:
             print(f"Warning: StructuredDataParserTool failed to parse LLM response into JSON: {response_str}")
             return {field: "Error: Failed to parse" for field in output_fields}
+
+# --- Tool #3: Code Execution Tool ---
+class CodeExecutionTool(BaseTool):
+    """
+    Executes a snippet of Python code.
+    WARNING: This tool is powerful and executes arbitrary code. It should be used with extreme caution
+    and only with trusted code snippets in a secure environment.
+    """
+    def execute(self, inputs: dict, config: dict, **kwargs) -> dict:
+        code_snippet = config.get("code")
+        if not code_snippet:
+            raise ValueError("CodeExecutionTool requires 'code' in its tool_config.")
+
+        # Prepare the local scope for exec
+        local_scope = {"inputs": inputs}
+        
+        # Capture the output of the exec call
+        # We can redirect stdout to capture prints, but for returning a value,
+        # we'll have exec populate a 'result' dictionary.
+        result_scope = {}
+        
+        # The code snippet should assign its output to a variable, e.g., 'output'.
+        # We will pass our result_scope to be populated.
+        full_code = f"""
+import json
+# The user's code snippet is placed here
+{code_snippet}
+# The user's script should assign its result to a variable named 'output'
+# We capture it into our results dictionary
+results['output'] = output
+"""
+        try:
+            exec(full_code, {"inputs": inputs}, result_scope)
+            return result_scope.get("output", {})
+        except Exception as e:
+            return {"error": f"Error executing code: {str(e)}"}
+
+
+# --- Tool #4: Conditional Router Tool ---
+class ConditionalRouterTool(BaseTool):
+    """
+    Directs the pipeline's execution flow based on specified conditions.
+    It returns a special '_next_step_id' output that the orchestrator can use
+    to determine the next step.
+    """
+    def execute(self, inputs: dict, config: dict, **kwargs) -> dict:
+        condition_groups = config.get("condition_groups", [])
+        else_step = config.get("else_execute_step")
+
+        for group in condition_groups:
+            if_condition = group.get("if", {})
+            then_step = group.get("then_execute_step")
+
+            variable = if_condition.get("variable")
+            operator = if_condition.get("operator")
+            value = if_condition.get("value")
+
+            if not all([variable, operator, value, then_step]):
+                continue # Skip malformed condition groups
+
+            actual_value = inputs.get(variable)
+
+            # Perform comparison
+            match = False
+            if operator == "equals" and actual_value == value:
+                match = True
+            elif operator == "not_equals" and actual_value != value:
+                match = True
+            elif operator == "contains" and isinstance(actual_value, (str, list, dict)) and value in actual_value:
+                match = True
+            elif operator == "not_contains" and isinstance(actual_value, (str, list, dict)) and value not in actual_value:
+                match = True
+            elif operator == "gt" and isinstance(actual_value, (int, float)) and actual_value > value:
+                match = True
+            elif operator == "lt" and isinstance(actual_value, (int, float)) and actual_value < value:
+                match = True
+
+            if match:
+                return {"_next_step_id": then_step}
+
+        # If no conditions matched, return the 'else' step
+        if else_step:
+            return {"_next_step_id": else_step}
+
+        # If no conditions matched and no 'else' is defined, return no override
+        return {}
+
+
+# --- Tool #5: Data Aggregator Tool ---
+class DataAggregatorTool(BaseTool):
+    """
+    Merges outputs from multiple previous steps into a single dictionary.
+    """
+    def execute(self, inputs: dict, config: dict, **kwargs) -> dict:
+        """
+        The 'inputs' for this tool are expected to be the direct outputs
+        of the steps specified in the config.
+        """
+        sources = config.get("sources", {})
+        aggregated_data = {}
+
+        for new_key, source_key in sources.items():
+            if source_key in inputs:
+                aggregated_data[new_key] = inputs[source_key]
+            else:
+                aggregated_data[new_key] = f"Source key '{source_key}' not found in inputs."
+
+        return aggregated_data
