@@ -12,6 +12,62 @@ BLUE = "\033[34m"
 BOLD = "\033[1m"
 
 
+def display_pipeline_flow(config: dict) -> None:
+    '''
+    Displays a human-readable logical flow of the pipeline based on its configuration.
+    '''
+    print(f"{BLUE}--- Pipeline Flow ---{RESET}")
+    if not config or 'agents' not in config or 'routing' not in config or 'start_agent' not in config:
+        print(f"{RED}Invalid or incomplete pipeline configuration provided.{RESET}")
+        return
+
+    agents_map = {agent['id']: agent for agent in config.get('agents', [])}
+    routing_map = config.get('routing', {})
+    current_agent_id = config.get('start_agent')
+
+    if not current_agent_id or current_agent_id not in agents_map:
+        print(f"{RED}Start agent '{current_agent_id}' not found in agents configuration.{RESET}")
+        return
+
+    visited_agents = set() # To detect potential loops and prevent infinite printing
+    step_number = 1
+
+    while current_agent_id and current_agent_id not in visited_agents:
+        visited_agents.add(current_agent_id)
+        agent_details = agents_map.get(current_agent_id)
+
+        if not agent_details:
+            print(f"{RED}Error: Agent '{current_agent_id}' found in routing but not defined in agents list.{RESET}")
+            break
+
+        agent_type = agent_details.get('type', 'N/A')
+        tool_name = ""
+        if agent_type == 'tool_agent':
+            tool_name = f", Tool: {agent_details.get('tool_name', 'N/A')}"
+
+        description = agent_details.get('description', 'No description.')
+
+        print(f"{GREEN}{step_number}. Agent: {current_agent_id} (Type: {agent_type}{tool_name}){RESET}")
+        print(f"   Description: {description}")
+
+        next_agent_id = routing_map.get(current_agent_id, {}).get('next')
+
+        if next_agent_id:
+            print(f"   Next -> {YELLOW}{next_agent_id}{RESET}")
+        else:
+            print(f"   Next -> {RED}END{RESET}")
+
+        current_agent_id = next_agent_id
+        step_number += 1
+        print("-" * 20) # Separator for readability
+
+    if current_agent_id and current_agent_id in visited_agents:
+        print(f"{YELLOW}Warning: Loop detected or agent '{current_agent_id}' already visited. Flow display terminated.{RESET}")
+
+    if step_number == 1 and not agents_map: # Handles empty agent list specifically
+        print(f"{YELLOW}No agents defined in the pipeline.{RESET}")
+
+
 
 def main():
     """
@@ -53,6 +109,19 @@ def main():
         print(f"{RED}❌ Error: The file at '{config_path}' is not valid JSON.{RESET}")
         sys.exit(1)
         return # Ensure exit
+
+    # --- Pipeline Confirmation ---
+    # The display_pipeline_flow function now prints its own title "--- Pipeline Flow ---"
+    # so the line print(f"{BLUE}\n--- Pipeline Confirmation ---{RESET}") might be redundant or could be removed.
+    # For now, let's keep it to clearly demarcate the start of this section.
+    print(f"{BLUE}\n--- Pipeline Confirmation ---{RESET}")
+    display_pipeline_flow(config) # Call the function to display the flow
+
+    confirmation = input(f"{BOLD}Do you want to run this pipeline? (yes/no): {RESET}").strip().lower()
+    if confirmation != "yes":
+        print(f"{RED}Pipeline execution cancelled by user.{RESET}")
+        sys.exit(0)
+    print(f"{GREEN}User confirmed. Proceeding with pipeline execution...{RESET}")
         
     # --- 3. Instantiate Orchestrator and Run Pipeline ---
     orchestrator = Orchestrator(config)
