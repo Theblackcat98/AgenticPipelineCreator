@@ -23,6 +23,7 @@ def main():
     
     It then executes the selected pipeline and displays the final results.
     """
+    config = None # Initialize config
     config_path = ""
     
     # --- 1. Determine Pipeline Configuration ---
@@ -37,6 +38,7 @@ def main():
         except (ValueError, RuntimeError):
             print("\nPipeline creation failed. Exiting.")
             sys.exit(1)
+            return # Ensure exit
 
     # --- 2. Load and Validate Configuration ---
     try:
@@ -46,9 +48,11 @@ def main():
     except FileNotFoundError:
         print(f"{RED}❌ Error: Configuration file not found at '{config_path}'.{RESET}")
         sys.exit(1)
+        return # Ensure exit
     except json.JSONDecodeError:
         print(f"{RED}❌ Error: The file at '{config_path}' is not valid JSON.{RESET}")
         sys.exit(1)
+        return # Ensure exit
         
     # --- 3. Instantiate Orchestrator and Run Pipeline ---
     orchestrator = Orchestrator(config)
