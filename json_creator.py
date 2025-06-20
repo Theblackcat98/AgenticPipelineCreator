@@ -206,6 +206,8 @@ Generate ONLY the JSON object.
     except json.JSONDecodeError as e:
         error_message = f"API Error: Failed to parse JSON response - {e}. Raw response was: '{raw_response_text}'"
         raise ValueError(error_message) from e
+    except ValueError as e: # Specific ValueErrors should be re-raised directly
+        raise
     except Exception as e:
         error_message = f"Failed to generate pipeline from Ollama: {type(e).__name__} - {e}. Raw response (if available): '{raw_response_text}'"
         raise RuntimeError(error_message) from e
@@ -232,9 +234,21 @@ def create_and_save_pipeline() -> str:
         os.makedirs(output_dir, exist_ok=True)
 
         pipeline_name = pipeline_json.get("pipeline_name", "untitled_pipeline")
-        sanitized_name = re.sub(r'[^a-zA-Z0-9_]', '_', pipeline_name)
-        snake_case_name = re.sub(r'(?<!^)(?=[A-Z])', '_', sanitized_name).lower()
-        output_filename = f"{snake_case_name}.json"
+
+        # Sanitize the pipeline name for use as a filename (Logic 4.0)
+        # 1. Convert CamelCase to snake_case.
+        name = re.sub(r'(?<!^)(?=[A-Z])', '_', pipeline_name).lower()
+        # 2. Replace any character that is not lowercase alphanumeric or underscore, with an underscore.
+        #    This handles spaces, hyphens, and other special characters by replacing sequences of them with a single underscore.
+        name = re.sub(r'[^a-z0-9_]+', '_', name)
+        # 3. Consolidate multiple underscores (e.g., "a___b" -> "a_b").
+        name = re.sub(r'_+', '_', name)
+        # 4. Remove leading/trailing underscores (e.g., "_ab_" -> "ab").
+        name = name.strip('_')
+        # 5. If the name becomes empty after sanitization (e.g., "!!!"), default it.
+        if not name:
+            name = "untitled_pipeline"
+        output_filename = f"{name}.json"
         output_path = os.path.join(output_dir, output_filename)
 
         with open(output_path, "w") as f:

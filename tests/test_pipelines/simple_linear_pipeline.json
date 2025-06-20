@@ -1,0 +1,43 @@
+{
+  "pipeline_name": "SimpleLinearTestPipeline",
+  "initial_input": {
+    "topic": "testing"
+  },
+  "start_agent": "agent_1_llm",
+  "agents": [
+    {
+      "id": "agent_1_llm",
+      "type": "llm_agent",
+      "model": "test-llm-model",
+      "description": "Generates a simple text based on topic.",
+      "prompt_template": "Generate a sentence about {topic_from_initial}.",
+      "inputs": {
+        "topic_from_initial": "pipeline.initial_input.topic"
+      },
+      "outputs": ["generated_text"]
+    },
+    {
+      "id": "agent_2_regex",
+      "type": "tool_agent",
+      "tool_name": "RegexParserTool",
+      "description": "Parses the generated text.",
+      "inputs": {
+        "text_to_parse": "agent_1_llm.generated_text"
+      },
+      "outputs": ["parsed_value"],
+      "tool_config": {
+        "patterns": {
+          "parsed_value": "sentence about (\\w+)"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "agent_1_llm": {"next": "agent_2_regex"},
+    "agent_2_regex": {"next": null}
+  },
+  "final_outputs": {
+    "final_topic": "pipeline.initial_input.topic",
+    "final_parsed_value": "agent_2_regex.parsed_value"
+  }
+}

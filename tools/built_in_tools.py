@@ -128,7 +128,7 @@ class ConditionalRouterTool(BaseTool):
     It returns a special '_next_step_id' output that the orchestrator can use
     to determine the next step.
     """
-    def execute(self, inputs: dict, config: dict, pipeline_state: dict, **kwargs) -> dict:
+    def execute(self, inputs: dict, config: dict, pipeline_state: dict, agent_id: str = None, **kwargs) -> dict: # Add agent_id
         """
         Directs execution flow. It can act as a simple conditional branch or
         as a stateful loop controller with data aggregation.
@@ -151,18 +151,25 @@ class ConditionalRouterTool(BaseTool):
             accumulators = loop_config.get("accumulators", {})
             loop_body_agents = loop_config.get("loop_body_agents", [])
 
-            # Initialize counter and accumulators in pipeline_state if not present
-            if counter_name not in pipeline_state:
-                pipeline_state[counter_name] = 0
-            for key in accumulators.keys():
-                if key not in pipeline_state:
-                    pipeline_state[key] = []
-            
-            current_count = pipeline_state.get(counter_name, 0)
-            total_iterations = int(inputs.get(total_iterations_key))
+            namespaced_counter_key = f"{agent_id}.{counter_name}" if agent_id else counter_name
 
-            if total_iterations is None:
+            # Initialize counter for the tool's logic if not in pipeline_state under its namespace
+            if namespaced_counter_key not in pipeline_state:
+                current_count = 0
+                # Optionally, one could initialize it in the main pipeline_state here,
+                # but typically state initialization is better handled by the orchestrator
+                # or by the first _update_state which then gets namespaced.
+                # For this tool, current_count is sufficient for its internal logic before first _update_state.
+            else:
+                current_count = pipeline_state.get(namespaced_counter_key, 0)
+
+            total_iterations_value = inputs.get(total_iterations_key)
+            if total_iterations_value is None:
                 raise ValueError(f"Looping error: Total iterations key '{total_iterations_key}' not found in inputs.")
+            try:
+                total_iterations = int(total_iterations_value)
+            except ValueError:
+                raise ValueError(f"Looping error: Total iterations key '{total_iterations_key}' must be an integer. Got '{total_iterations_value}'.")
 
             # --- Data Aggregation ---
             # This happens before the check, so on the first run (count=0), it still collects initial data.
@@ -170,12 +177,18 @@ class ConditionalRouterTool(BaseTool):
             for output_key, input_source in accumulators.items():
                 if input_source in inputs:
                     # Ensure the list exists before appending
-                    if output_key not in pipeline_state:
-                        pipeline_state[output_key] = []
+                    # if output_key not in pipeline_state: # This was modifying pipeline_state directly
+                    #     pipeline_state[output_key] = []  # Should use updated_state or get from pipeline_state for current_list
                     
-                    # Append the new value to the list
-                    new_list = pipeline_state[output_key] + [inputs[input_source]]
-                    updated_state[output_key] = new_list
+                    value_to_accumulate = inputs[input_source]
+                    # Only accumulate if the value is not None and not an empty string (for this use case)
+                    if value_to_accumulate is not None and value_to_accumulate != "":
+                        # output_key is the short name (e.g., "all_generated_items")
+                        namespaced_acc_key = f"{agent_id}.{output_key}" if agent_id else output_key
+                        current_list = pipeline_state.get(namespaced_acc_key, [])
+                        new_list = current_list + [value_to_accumulate]
+                        # When putting into updated_state, use the short name. Orchestrator will namespace it.
+                        updated_state[output_key] = new_list
                 else:
                     # If an expected input is missing, you might want to handle it,
                     # e.g., by appending a null value or raising an error.
@@ -195,9 +208,17 @@ class ConditionalRouterTool(BaseTool):
                 }
             else:
                 # End loop: return aggregated data and proceed to the next step
+                # The 'updated_state' dictionary at this point contains the latest accumulated lists.
                 final_output = {"_next_step_id": config.get("else_execute_step")}
-                for key in accumulators.keys():
-                    final_output[key] = pipeline_state.get(key, [])
+                # Merge the final accumulated values from updated_state into final_output
+                for acc_output_key in accumulators.keys():
+                    if acc_output_key in updated_state:
+                        final_output[acc_output_key] = updated_state[acc_output_key]
+                    else:
+                        # If not in updated_state (e.g. if it was never populated due to conditions),
+                        # fetch from pipeline_state as a fallback, though this should ideally be covered by updated_state.
+                        namespaced_acc_key = f"{agent_id}.{acc_output_key}" if agent_id else acc_output_key
+                        final_output[acc_output_key] = pipeline_state.get(namespaced_acc_key, [])
                 return final_output
 
         # --- Standard Conditional Routing ---

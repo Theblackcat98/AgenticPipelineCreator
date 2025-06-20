@@ -142,9 +142,11 @@ class Orchestrator:
             The complete, final pipeline state dictionary.
         """
         # The initial input from the config is used to seed the state.
-        # If it's missing or empty, _resolve_inputs will prompt the user later.
-        initial_input = self.config.get("initial_input", "")
-        pipeline_state = {"pipeline.initial_input": initial_input}
+        initial_input_value = self.config.get("initial_input", None) # Default to None if not present
+        if initial_input_value == "": # Treat empty string as if it's not provided for prompting
+            initial_input_value = None
+
+        pipeline_state = {"pipeline.initial_input": initial_input_value}
         current_agent_id = self.start_agent_id
         
         print(f"🚀 Starting pipeline '{self.config['pipeline_name']}'...")
@@ -189,7 +191,8 @@ class Orchestrator:
                     config=tool_config,
                     invoke_llm=invoke_llm,
                     output_fields=agent_config.get('outputs', []),
-                    pipeline_state=pipeline_state
+                    pipeline_state=pipeline_state,
+                    agent_id=current_agent_id # Pass agent_id
                 )
             else:
                 raise ValueError(f"Unsupported agent type: '{agent_type}'")
@@ -204,8 +207,17 @@ class Orchestrator:
                     pipeline_state[state_key] = value
 
             # Handle direct state updates from tools like the router.
-            if '_update_state' in outputs:
-                pipeline_state.update(outputs['_update_state'])
+            if '_update_state' in outputs and isinstance(outputs['_update_state'], dict):
+                for state_key, state_value in outputs['_update_state'].items():
+                    # Namespace the state update with the current agent's ID
+                    # unless the key is already a special non-namespaced key (e.g. if a tool directly manipulates other agent's outputs by full name)
+                    # For now, assume keys in _update_state are tool-local and need namespacing.
+                    # A more sophisticated check could see if state_key already contains a '.'
+                    if '.' not in state_key: # Simple check: if not already namespaced
+                        namespaced_state_key = f"{current_agent_id}.{state_key}"
+                        pipeline_state[namespaced_state_key] = state_value
+                    else: # Assume it's an advanced case of direct state manipulation with full path
+                        pipeline_state[state_key] = state_value
             
             # --- Clear Agent Outputs Instruction ---
             # Check if the tool requested to clear the outputs of specific agents.
@@ -250,5 +262,25 @@ class Orchestrator:
         """
         results = {}
         for key, source_path in self.final_outputs_map.items():
-            results[key] = final_state.get(source_path, f"Error: Output '{source_path}' not found in final state")
+            value = None
+            if source_path.startswith("pipeline.initial_input."):
+                # Path is like "pipeline.initial_input.some_key"
+                initial_input_object_path = ".".join(source_path.split('.')[2:])
+                initial_input_data = final_state.get("pipeline.initial_input")
+                if isinstance(initial_input_data, dict):
+                    value = self._get_value_from_path(initial_input_data, initial_input_object_path)
+                elif initial_input_object_path == "" and initial_input_data is not None: # Requesting the whole initial_input object
+                    value = initial_input_data
+
+            elif source_path == "pipeline.initial_input":
+                # Path is exactly "pipeline.initial_input"
+                value = final_state.get("pipeline.initial_input")
+            else:
+                # Path is like "agent_id.output_key"
+                value = final_state.get(source_path)
+
+            if value is None:
+                results[key] = f"Error: Output '{source_path}' not found in final state"
+            else:
+                results[key] = value
         return results
