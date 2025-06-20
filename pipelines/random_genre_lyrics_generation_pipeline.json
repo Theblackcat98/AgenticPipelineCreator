@@ -1,0 +1,116 @@
+{
+  "pipeline_name": "RandomGenreLyricsGenerationPipeline",
+  "initial_input": null,
+  "start_agent": "generate_random_genre",
+  "agents": [
+    {
+      "id": "generate_random_genre",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Generates a random music genre.",
+      "prompt_template": "Generate a random music genre.",
+      "inputs": {},
+      "outputs": [
+        "genre"
+      ],
+      "output_format": "string"
+    },
+    {
+      "id": "generate_title_based_on_genre",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Generates a title based on the given genre.",
+      "prompt_template": "Generate a creative song title for the genre '{genre}'.",
+      "inputs": {
+        "genre": "generate_random_genre.genre"
+      },
+      "outputs": [
+        "title"
+      ],
+      "output_format": "string"
+    },
+    {
+      "id": "generate_lyrics_based_on_genre_and_title",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Generates lyrics based on the genre and title.",
+      "prompt_template": "Write song lyrics for a song titled '{title}' in the genre '{genre}'.",
+      "inputs": {
+        "genre": "generate_random_genre.genre",
+        "title": "generate_title_based_on_genre.title"
+      },
+      "outputs": [
+        "lyrics"
+      ],
+      "output_format": "string"
+    },
+    {
+      "id": "loop_controller",
+      "type": "tool_agent",
+      "tool_name": "ConditionalRouterTool",
+      "description": "Repeats the genre, title, and lyrics generation process 4 times.",
+      "inputs": {
+        "num_iterations": 4,
+        "genre": "generate_random_genre.genre",
+        "title": "generate_title_based_on_genre.title",
+        "lyrics": "generate_lyrics_based_on_genre_and_title.lyrics"
+      },
+      "outputs": [
+        "all_genres",
+        "all_titles",
+        "all_lyrics"
+      ],
+      "tool_config": {
+        "loop_config": {
+          "total_iterations_from": 4,
+          "loop_body_start_id": "generate_random_genre",
+          "counter_name": "generation_loop_counter",
+          "accumulators": {
+            "all_genres": "genre",
+            "all_titles": "title",
+            "all_lyrics": "lyrics"
+          }
+        },
+        "else_execute_step": null
+      }
+    },
+    {
+      "id": "generate_album_name",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Generates an album name based on the generated genres and titles.",
+      "prompt_template": "Create a creative album name using these song titles: {all_titles}. The songs are in the following genres: {all_genres}.",
+      "inputs": {
+        "all_titles": "loop_controller.all_titles",
+        "all_genres": "loop_controller.all_genres"
+      },
+      "outputs": [
+        "album_name"
+      ],
+      "output_format": "string"
+    }
+  ],
+  "routing": {
+    "generate_random_genre": {
+      "next": "generate_title_based_on_genre"
+    },
+    "generate_title_based_on_genre": {
+      "next": "generate_lyrics_based_on_genre_and_title"
+    },
+    "generate_lyrics_based_on_genre_and_title": {
+      "next": "loop_controller"
+    },
+    "loop_controller": {
+      "next": "generate_album_name"
+    },
+    "generate_album_name": {
+      "next": null
+    }
+  },
+  "final_outputs": {
+    "all_genres": "loop_controller.all_genres",
+    "all_titles": "loop_controller.all_titles",
+    "all_lyrics": "loop_controller.all_lyrics",
+    "album_name": "generate_album_name.album_name"
+  }
+}
