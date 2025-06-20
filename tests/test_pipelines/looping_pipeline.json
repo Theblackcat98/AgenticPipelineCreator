@@ -1,0 +1,86 @@
+{
+  "pipeline_name": "LoopingTestPipeline",
+  "initial_input": {
+    "loop_count": 2,
+    "item_prefix": "Item"
+  },
+  "start_agent": "setup_loop_vars",
+  "agents": [
+    {
+      "id": "setup_loop_vars",
+      "type": "tool_agent",
+      "tool_name": "DataAggregatorTool",
+      "description": "Passes initial loop count to where the router expects it.",
+      "inputs": {
+        "count_in": "pipeline.initial_input.loop_count"
+      },
+      "outputs": ["actual_loop_count"],
+      "tool_config": {
+        "sources": {
+          "actual_loop_count": "count_in"
+        }
+      }
+    },
+    {
+      "id": "loop_controller",
+      "type": "tool_agent",
+      "tool_name": "ConditionalRouterTool",
+      "description": "Controls the loop.",
+      "inputs": {
+        "num_iterations_input": "setup_loop_vars.actual_loop_count",
+        "item_generated_in_loop": "generate_item_inside_loop.generated_text"
+      },
+      "outputs": ["all_generated_items"],
+      "tool_config": {
+        "loop_config": {
+          "total_iterations_from": "num_iterations_input",
+          "loop_body_start_id": "generate_item_inside_loop",
+          "counter_name": "test_loop_counter",
+          "accumulators": {
+            "all_generated_items": "item_generated_in_loop"
+          },
+          "loop_body_agents": ["generate_item_inside_loop"]
+        },
+        "else_execute_step": "final_processing"
+      }
+    },
+    {
+      "id": "generate_item_inside_loop",
+      "type": "llm_agent",
+      "model": "test-loop-llm",
+      "description": "Generates an item string using the loop counter.",
+      "prompt_template": "Generate content for {item_prefix} using loop counter value available in pipeline_state at loop_controller.test_loop_counter (this is for info, direct access not used in prompt). Iteration: {current_iteration_count_from_router_input}",
+      "inputs": {
+        "item_prefix": "pipeline.initial_input.item_prefix",
+        "current_iteration_count_from_router_input": "loop_controller.test_loop_counter"
+      },
+      "outputs": ["generated_text"]
+    },
+    {
+      "id": "final_processing",
+      "type": "tool_agent",
+      "tool_name": "DataAggregatorTool",
+      "description": "Processes aggregated data (placeholder).",
+      "inputs": {
+        "looped_data": "loop_controller.all_generated_items"
+      },
+      "outputs": ["processed_data"],
+      "tool_config": {
+        "sources": {
+          "processed_data": "looped_data"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "setup_loop_vars": {"next": "loop_controller"},
+    "loop_controller": {"next": null},
+    "generate_item_inside_loop": {"next": "loop_controller"},
+    "final_processing": {"next": null}
+  },
+  "final_outputs": {
+    "final_loop_counter": "loop_controller.test_loop_counter",
+    "aggregated_items": "loop_controller.all_generated_items",
+    "output_from_final_processing": "final_processing.processed_data"
+  }
+}
