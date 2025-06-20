@@ -195,6 +195,10 @@ The framework comes with the following tools you can use in a `tool_agent`.
 
 ---
 
+https://code2tutorial.com/tutorial/2ab4da80-c059-4c99-9456-e28fb1c1b1c7/index.md
+
+---
+
 ## 🗺️ Roadmap & Future Work
 
 This framework is an MVP with a solid foundation. Future enhancements include:
