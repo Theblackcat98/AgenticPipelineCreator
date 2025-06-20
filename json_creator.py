@@ -97,6 +97,10 @@ Critical JSON Formatting Rules:
 - All keys and string values must be enclosed in double quotes.
 - No trailing commas in objects or arrays.
 - All braces `{{}}` and brackets `[]` must be correctly paired.
+- Boolean values (`true`, `false`) must NOT be enclosed in quotes.
+- Numeric values must NOT be enclosed in quotes.
+- The value `null` (without quotes) should be used for absent optional fields or when a null value is explicitly intended.
+- Ensure no characters (like comments or extra text) exist outside the main JSON object (e.g. after the final `}}`).
 
 Key considerations when generating the JSON content:
 
@@ -185,10 +189,21 @@ Generate ONLY the JSON object.
         # It's good practice to strip and check for markdown fences.
         json_str = raw_response_text.strip()
         
-        # Regex to remove potential markdown fences (e.g., ```json ... ``` or ``` ... ```)
-        fence_match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", json_str, re.DOTALL)
-        if fence_match:
-            json_str = fence_match.group(1).strip()
+        # Attempt to extract JSON block, allowing for optional markdown fences and surrounding text
+        # This looks for the first '{' to the last '}' or the first '[' to the last ']'
+        match = re.search(r"^\s*(?:```(?:json)?\s*)?(\{.*\})[;\s]*?(?:```)?\s*$", json_str, re.DOTALL)
+        if not match:
+            match = re.search(r"^\s*(?:```(?:json)?\s*)?(\[.*\])[;\s]*?(?:```)?\s*$", json_str, re.DOTALL)
+
+        if match:
+            json_str = match.group(1).strip()
+        else:
+            # If no clear block is found, and there are fences, try the old method as a fallback.
+            # This handles cases where the LLM might put text outside the fences but the core JSON is within.
+            fence_match_fallback = re.search(r"```(?:json)?\s*(.*?)\s*```", json_str, re.DOTALL)
+            if fence_match_fallback:
+                json_str = fence_match_fallback.group(1).strip()
+            # If still no match, it will likely fail json.loads, which is handled.
             
         parsed_data = json.loads(json_str)
 

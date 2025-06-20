@@ -83,6 +83,28 @@ python main.py ./pipelines/pipeline_config.json
 
 This will execute the example content generation pipeline defined in the default `pipeline_config.json` file.
 
+## Running Specific Pipelines
+
+You can run a specific pipeline configuration file directly from the command line:
+
+```bash
+python main.py path/to/your/pipeline.json
+```
+
+This will load and execute the specified pipeline.
+
+### Test Mode
+
+For testing or automated runs where interactive prompts are not desired, you can use the `--test-mode` flag:
+
+```bash
+python main.py path/to/your/pipeline.json --test-mode
+```
+
+When in test mode:
+- The initial confirmation prompt to run the pipeline will be skipped.
+- If the pipeline requires an input that is not defined in its initial configuration or provided by a preceding agent, the execution will fail with an error instead of prompting for user input. This is useful for CI/CD environments or automated testing scripts.
+
 ---
 
 ## 📝 Creating Your Own Pipeline: The `pipeline_config.json` Guide
