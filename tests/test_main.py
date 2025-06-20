@@ -279,3 +279,61 @@ def test_main_creation_path_confirmation_yes(
     output = mock_stdout.getvalue()
     assert "Pipeline Flow" in output
     assert "User confirmed. Proceeding with pipeline execution..." in output
+
+# New test case for --test-mode
+@patch('main.display_pipeline_flow') # Mock display_pipeline_flow
+@patch('main.Orchestrator')
+@patch('builtins.open', new_callable=mock_open)
+@patch('main.json.load')
+@patch('main.sys.exit')
+@patch('builtins.print') # Mock print to suppress output during test if desired
+def test_main_run_specific_pipeline_test_mode(
+    mock_print, mock_sys_exit, mock_json_load, mock_fs_open, mock_orchestrator_class, mock_display_pipeline_flow
+):
+    config_path = 'tests/test_pipelines/random_genre_lyrics_generation_pipeline.json'
+    # Simulate the content of the random_genre_lyrics_generation_pipeline.json
+    mock_config_dict = {
+        "pipeline_name": "RandomGenreLyricsGenerationPipeline",
+        "initial_input": None,
+        "start_agent": "generate_random_genre",
+        "agents": [
+            {
+              "id": "generate_random_genre", "type": "llm_agent", "model": "phi4:latest",
+              "description": "Generates a random music genre.", "prompt_template": "Generate a random music genre.",
+              "inputs": {}, "outputs": ["genre"], "output_format": "string"
+            },
+            { # Mock of loop_controller for Orchestrator init
+              "id": "loop_controller", "type": "tool_agent", "tool_name": "ConditionalRouterTool",
+              "inputs": {"num_iterations": 1}, # Simplified for this test
+              "tool_config": {"loop_config": {"total_iterations_from": "num_iterations"}}
+            }
+        ],
+        "routing": {"generate_random_genre": {"next": "loop_controller"}, "loop_controller": {"next": None}},
+        "final_outputs": {}
+    }
+    mock_json_load.return_value = mock_config_dict
+
+    mock_orchestrator_instance = MagicMock()
+    # Simulate a successful run without the previous ValueError.
+    mock_orchestrator_instance.run.return_value = {"status": "completed"}
+    mock_orchestrator_class.return_value = mock_orchestrator_instance
+
+    # Simulate command line arguments: main.py <config_path> --test-mode
+    with patch('main.sys.argv', ['main.py', config_path, '--test-mode']):
+        main() # test_mode should be True when main is called
+
+    # Assertions:
+    # 1. display_pipeline_flow was called
+    mock_display_pipeline_flow.assert_called_once_with(mock_config_dict)
+    # 2. File was opened with the correct path
+    mock_fs_open.assert_called_once_with(config_path, "r")
+    # 3. JSON was loaded from the file
+    mock_json_load.assert_called_once_with(mock_fs_open.return_value.__enter__.return_value) # Check context manager usage
+    # 4. Orchestrator was initialized with the loaded config and test_mode=True
+    mock_orchestrator_class.assert_called_once_with(mock_config_dict, test_mode=True)
+    # 5. Orchestrator's run method was called
+    mock_orchestrator_instance.run.assert_called_once()
+    # 6. sys.exit was not called with an error code (or not called at all if successful)
+    for call_obj in mock_sys_exit.call_args_list:
+        args, _ = call_obj
+        assert args[0] != 1, "sys.exit(1) was called, indicating an error"

@@ -20,7 +20,7 @@ class Orchestrator:
     It handles state management, agent routing, and execution of different agent types.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], test_mode: bool = False): # Add test_mode
         """
         Initializes the Orchestrator with a pipeline configuration.
 
@@ -32,6 +32,7 @@ class Orchestrator:
         self.routing = config['routing']
         self.start_agent_id = config['start_agent']
         self.final_outputs_map = config.get("final_outputs", {})
+        self.test_mode = test_mode # Store test_mode
 
         # The Tool Registry maps tool names from the JSON config to their
         # corresponding Python class instances. This is how the framework
@@ -102,18 +103,16 @@ class Orchestrator:
                 value = state.get(source_path)
 
             if value is None:
+                if self.test_mode: # Check test_mode
+                    raise ValueError(f"Input '{local_name}' (from '{source_path}') not found in state and test_mode is active. Pipeline cannot proceed without user input.")
                 # --- Enhanced Interactive Input ---
-                # If the value could not be found in the state, prompt the user.
                 print(f"🟡 Input needed for '{local_name}'.")
                 prompt_message = f"Please provide the value for '{source_path.replace('_', ' ')}': "
                 user_value = input(prompt_message)
-
-                # Update the central state so this value can be used by other agents.
-                state[source_path] = user_value
+                state[source_path] = user_value # Update state
                 value = user_value
-
-            resolved_inputs[local_name] = value
             
+            resolved_inputs[local_name] = value
         return resolved_inputs
 
     def _parse_llm_list_output(self, text: str) -> List[str]:

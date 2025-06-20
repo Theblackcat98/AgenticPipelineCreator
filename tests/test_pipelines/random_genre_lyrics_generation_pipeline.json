@@ -62,7 +62,7 @@
       ],
       "tool_config": {
         "loop_config": {
-          "total_iterations_from": 4,
+          "total_iterations_from": "num_iterations",
           "loop_body_start_id": "generate_random_genre",
           "counter_name": "generation_loop_counter",
           "accumulators": {
