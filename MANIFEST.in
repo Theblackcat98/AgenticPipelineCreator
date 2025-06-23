@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include pipelines *.json
+recursive-include tests *.json
+# Add other non-code files that should be part of the sdist here
+# For example, if you had global configuration files or templates
+# recursive-include src/your_package/templates *.html
+# global-exclude *.py[cod]

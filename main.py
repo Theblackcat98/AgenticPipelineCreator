@@ -156,5 +156,44 @@ def main():
                 
     print("\n" + f"{BLUE}="*50)
 
+def main_cli():
+    """
+    Command-line interface entry point.
+    Parses arguments and calls the main execution logic.
+    """
+    if len(sys.argv) < 2:
+        print(f"{RED}Usage: apf-run <path_to_pipeline_config.json>{RESET}")
+        print(f"{YELLOW}Or run 'python main.py' without arguments to enter interactive pipeline creation mode.{RESET}")
+        sys.exit(1)
+
+    # The main() function already handles the logic of checking sys.argv
+    # So, we can directly call it. The script's behavior when called as `apf-run`
+    # will be determined by how `main()` processes `sys.argv`.
+    # If `apf-run path/to/config.json` is called, sys.argv will be `['apf-run', 'path/to/config.json']`
+    # If `python main.py path/to/config.json` is called, sys.argv will be `['main.py', 'path/to/config.json']`
+    # The logic in main() should correctly handle both.
+    # For `apf-run` specifically, we want to ensure it only runs if a path is provided.
+    # The existing main() function's interactive mode is better suited for `python main.py`.
+
+    # Re-evaluating the entry point:
+    # The `main()` function has dual behavior: interactive if no args, direct run if arg is present.
+    # For `apf-run`, we strictly want the "direct run" behavior.
+    # We can adjust `main_cli` to enforce this or modify `main` to distinguish calls.
+
+    # Let's keep main() as is for `python main.py` behavior (interactive or direct).
+    # For `apf-run` (main_cli), we will ensure it only proceeds if a config path is given.
+
+    config_path_arg = sys.argv[1] # sys.argv[0] is the script name 'apf-run'
+
+    # To reuse the main logic, we can simulate the expected sys.argv for main()
+    # when called directly with a config file.
+    original_sys_argv = sys.argv
+    sys.argv = [sys.argv[0], config_path_arg] # Simulate `python main.py <config_path>`
+
+    main() # Call the existing main function
+
+    sys.argv = original_sys_argv # Restore original sys.argv if necessary, though exiting soon
+
 if __name__ == "__main__":
+    # This allows running `python main.py` for interactive mode or `python main.py <config>`
     main()
