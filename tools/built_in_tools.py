@@ -145,32 +145,35 @@ class ConditionalRouterTool(BaseTool):
 
         # --- Stateful Looping Behavior ---
         if loop_config:
-            total_iterations_key = loop_config.get("total_iterations_from")
+            total_iterations_config_value = loop_config.get("total_iterations_from")
             loop_body_start_id = loop_config.get("loop_body_start_id")
             counter_name = loop_config.get("counter_name")
             accumulators = loop_config.get("accumulators", {})
-            loop_body_agents = loop_config.get("loop_body_agents", [])
+            loop_body_agents = loop_config.get("loop_body_agents", []) # Ensure this is fetched
 
             namespaced_counter_key = f"{agent_id}.{counter_name}" if agent_id else counter_name
 
-            # Initialize counter for the tool's logic if not in pipeline_state under its namespace
             if namespaced_counter_key not in pipeline_state:
                 current_count = 0
-                # Optionally, one could initialize it in the main pipeline_state here,
-                # but typically state initialization is better handled by the orchestrator
-                # or by the first _update_state which then gets namespaced.
-                # For this tool, current_count is sufficient for its internal logic before first _update_state.
             else:
                 current_count = pipeline_state.get(namespaced_counter_key, 0)
 
-            total_iterations_value = inputs.get(total_iterations_key)
-            if total_iterations_value is None:
-                raise ValueError(f"Looping error: Total iterations key '{total_iterations_key}' not found in inputs.")
-            try:
-                total_iterations = int(total_iterations_value)
-            except ValueError:
-                raise ValueError(f"Looping error: Total iterations key '{total_iterations_key}' must be an integer. Got '{total_iterations_value}'.")
+            total_iterations = 0 # Initialize total_iterations
+            if isinstance(total_iterations_config_value, int):
+                total_iterations = total_iterations_config_value
+            elif isinstance(total_iterations_config_value, str):
+                total_iterations_value_from_inputs = inputs.get(total_iterations_config_value)
+                if total_iterations_value_from_inputs is None:
+                    raise ValueError(f"Looping error: Total iterations key '{total_iterations_config_value}' not found in inputs. Ensure it's defined in the agent's 'inputs'.")
+                try:
+                    total_iterations = int(total_iterations_value_from_inputs)
+                except ValueError:
+                    raise ValueError(f"Looping error: Input '{total_iterations_config_value}' (resolved to '{total_iterations_value_from_inputs}') must be an integer.")
+            else:
+                raise ValueError(f"Looping error: 'total_iterations_from' in loop_config must be an integer or a string key name. Got type {type(total_iterations_config_value)}.")
 
+            # Ensure loop_body_agents is correctly used for _clear_agent_outputs if needed by the logic
+            # The rest of the logic for data aggregation and loop control follows...
             # --- Data Aggregation ---
             # This happens before the check, so on the first run (count=0), it still collects initial data.
             updated_state = {}

@@ -69,7 +69,7 @@ def display_pipeline_flow(config: dict) -> None:
 
 
 
-def main():
+def main(test_mode=False): # Add test_mode parameter
     """
     The main entrypoint for the Agentic Pipeline Framework.
 
@@ -79,54 +79,67 @@ def main():
     
     It then executes the selected pipeline and displays the final results.
     """
-    config = None # Initialize config
-    config_path = ""
-    
-    # --- 1. Determine Pipeline Configuration ---
-    if len(sys.argv) > 1:
-        # Use a provided configuration file
+    # ... existing code ...
+    config_path = None
+    if len(sys.argv) > 1 and sys.argv[1].endswith(".json"):
         config_path = sys.argv[1]
         print(f"{YELLOW}▶️  Running pipeline from specified file: '{config_path}' {RESET}")
     else:
-        # Guide the user to create a new pipeline
-        try:
-            config_path = create_and_save_pipeline()
-        except (ValueError, RuntimeError):
-            print("\nPipeline creation failed. Exiting.")
+        # Guide the user to create a new pipeline if not in test_mode and no config path
+        if not test_mode: # Slightly adjusted logic: only create if not test mode AND no path
+            try:
+                config_path = create_and_save_pipeline()
+            except (ValueError, RuntimeError): # Keep existing error handling
+                print("\nPipeline creation failed. Exiting.")
+                sys.exit(1)
+                return # Ensure exit
+        elif not config_path: # If test_mode and no config_path, it's an error
+            print(f"{RED}❌ Error: No pipeline configuration file specified in test mode.{RESET}")
             sys.exit(1)
             return # Ensure exit
 
+
+    config_data = None # Renamed from 'config' to avoid confusion in this block
     # --- 2. Load and Validate Configuration ---
-    try:
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        print(f"{GREEN}✅ Successfully loaded pipeline: '{config.get('pipeline_name', 'N/A')}'{RESET}")
-    except FileNotFoundError:
-        print(f"{RED}❌ Error: Configuration file not found at '{config_path}'.{RESET}")
+    if config_path: # Only try to load if config_path is set
+        try:
+            with open(config_path, "r") as f:
+                config_data = json.load(f)
+            print(f"{GREEN}✅ Successfully loaded pipeline: '{config_data.get('pipeline_name', 'N/A')}'{RESET}")
+        except FileNotFoundError:
+            print(f"{RED}❌ Error: Configuration file not found at '{config_path}'.{RESET}")
+            sys.exit(1)
+            return # Ensure exit
+        except json.JSONDecodeError:
+            print(f"{RED}❌ Error: The file at '{config_path}' is not valid JSON.{RESET}")
+            sys.exit(1)
+            return # Ensure exit
+    elif not test_mode: # If no config_path and not in test_mode, means creation was skipped or failed silently prior (should not happen with current logic)
+        print(f"{RED}❌ Error: No pipeline configuration available.{RESET}") # Should ideally be caught by create_and_save_pipeline logic
         sys.exit(1)
-        return # Ensure exit
-    except json.JSONDecodeError:
-        print(f"{RED}❌ Error: The file at '{config_path}' is not valid JSON.{RESET}")
-        sys.exit(1)
-        return # Ensure exit
+        return
 
-    # --- Pipeline Confirmation ---
-    # The display_pipeline_flow function now prints its own title "--- Pipeline Flow ---"
-    # so the line print(f"{BLUE}\n--- Pipeline Confirmation ---{RESET}") might be redundant or could be removed.
-    # For now, let's keep it to clearly demarcate the start of this section.
-    print(f"{BLUE}\n--- Pipeline Confirmation ---{RESET}")
-    display_pipeline_flow(config) # Call the function to display the flow
-
-    confirmation = input(f"{BOLD}Do you want to run this pipeline? (yes/no): {RESET}").strip().lower()
-    if confirmation != "yes":
-        print(f"{RED}Pipeline execution cancelled by user.{RESET}")
-        sys.exit(0)
-    print(f"{GREEN}User confirmed. Proceeding with pipeline execution...{RESET}")
+    if config_data:
+        display_pipeline_flow(config_data)
         
-    # --- 3. Instantiate Orchestrator and Run Pipeline ---
-    orchestrator = Orchestrator(config)
-    # The run method now manages its own state, including initial input.
-    final_state = orchestrator.run()
+        proceed = "yes" # Default to yes for test_mode
+        if not test_mode: # Only ask for confirmation if not in test_mode
+            try:
+                confirmation = input(f"{BOLD}Do you want to run this pipeline? (yes/no): {RESET}").strip().lower()
+                if confirmation not in ['yes', 'y']:
+                    print("Pipeline execution cancelled by user.")
+                    sys.exit(0)
+                # proceed = confirmation # Not really used if 'yes', but good for clarity
+            except EOFError: # Handle cases where input is not available (e.g. CI environment)
+                print("No input received for confirmation. Assuming 'no'. Pipeline execution cancelled.")
+                sys.exit(0)
+
+        if proceed == "yes": # or just check if not exited
+            if not test_mode: # Only print if not in test_mode
+                print(f"{GREEN}User confirmed. Proceeding with pipeline execution...{RESET}")
+
+            orchestrator = Orchestrator(config_data, test_mode=test_mode) # Add test_mode
+            final_state = orchestrator.run()
 
     # --- 4. Extract and Display Final Outputs ---
     final_results = orchestrator.get_final_outputs(final_state)
@@ -157,4 +170,8 @@ def main():
     print("\n" + f"{BLUE}="*50)
 
 if __name__ == "__main__":
-    main()
+    is_test_mode = "--test-mode" in sys.argv
+    # Remove --test-mode from sys.argv if present, so it doesn't interfere with config path detection
+    if is_test_mode:
+        sys.argv = [arg for arg in sys.argv if arg != "--test-mode"]
+    main(test_mode=is_test_mode) # Pass test_mode to main
