@@ -287,8 +287,9 @@ def test_main_creation_path_confirmation_yes(
 @patch('main.json.load')
 @patch('main.sys.exit')
 @patch('builtins.print') # Mock print to suppress output during test if desired
+@patch('builtins.input', return_value='yes') # ADDED: Mock input for confirmation
 def test_main_run_specific_pipeline_test_mode(
-    mock_print, mock_sys_exit, mock_json_load, mock_fs_open, mock_orchestrator_class, mock_display_pipeline_flow
+    mock_input, mock_print, mock_sys_exit, mock_json_load, mock_fs_open, mock_orchestrator_class, mock_display_pipeline_flow
 ):
     config_path = 'tests/test_pipelines/random_genre_lyrics_generation_pipeline.json'
     # Simulate the content of the random_genre_lyrics_generation_pipeline.json
@@ -320,7 +321,7 @@ def test_main_run_specific_pipeline_test_mode(
 
     # Simulate command line arguments: main.py <config_path> --test-mode
     with patch('main.sys.argv', ['main.py', config_path, '--test-mode']):
-        main() # test_mode should be True when main is called
+        main(test_mode=True) # test_mode should be True when main is called
 
     # Assertions:
     # 1. display_pipeline_flow was called
