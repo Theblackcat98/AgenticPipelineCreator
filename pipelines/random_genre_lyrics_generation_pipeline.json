@@ -65,6 +65,11 @@
           "total_iterations_from": 4,
           "loop_body_start_id": "generate_random_genre",
           "counter_name": "generation_loop_counter",
+          "loop_body_agents": [
+            "generate_random_genre",
+            "generate_title_based_on_genre",
+            "generate_lyrics_based_on_genre_and_title"
+          ],
           "accumulators": {
             "all_genres": "genre",
             "all_titles": "title",
