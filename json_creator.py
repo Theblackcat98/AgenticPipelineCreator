@@ -85,24 +85,53 @@ def generate_pipeline_json_python(natural_language_input: str) -> dict:
     prompt = f"""
 You are an AI assistant specialized in creating data processing pipeline definitions in JSON format.
 Your task is to convert the user's natural language description of a pipeline into a valid JSON object.
-The JSON object MUST strictly follow the structure and schema exemplified below.
+Your response MUST be the JSON object itself, and nothing else. Do not add any explanatory text, apologies, or any characters before the opening `{` or after the closing `}` of the JSON.
 
-JSON Schema Example (use this exact structure, ensuring all described fields are present if applicable):
+The JSON object MUST strictly follow the structure and schema exemplified.
+
+**Main Structural Template (Adhere to this structure):**
 ```json
 {USER_JSON_PIPELINE_TEMPLATE}
 ```
+The `USER_JSON_PIPELINE_TEMPLATE` above defines the strict structural schema you MUST follow for complex pipelines. All top-level keys shown in that template are mandatory if applicable to the user's request.
 
-Critical JSON Formatting Rules:
-- The entire response MUST be ONLY the JSON object. Do not include any introductory text, explanations, or markdown formatting.
-- All keys and string values must be enclosed in double quotes.
-- No trailing commas in objects or arrays.
+**Minimal Valid Pipeline Example (for very simple requests):**
+```json
+{
+  "pipeline_name": "MinimalExamplePipeline",
+  "initial_input": "User's simple request",
+  "start_agent": "agent_1",
+  "agents": [
+    {
+      "id": "agent_1",
+      "type": "llm_agent",
+      "model": "phi4:latest",
+      "description": "Processes the initial input.",
+      "prompt_template": "Process this: {data}",
+      "inputs": { "data": "pipeline.initial_input" },
+      "outputs": [ "result" ]
+    }
+  ],
+  "routing": {
+    "agent_1": { "next": null }
+  },
+  "final_outputs": {
+    "final_result": "agent_1.result"
+  }
+}
+```
+
+**Critical JSON Formatting Rules (ABSOLUTE REQUIREMENTS):**
+- Your entire response MUST consist ONLY of the JSON object. No introductory/explanatory text, no markdown formatting surrounding the JSON.
+- All keys and string values MUST be enclosed in double quotes (e.g., `"key": "value"`).
+- No trailing commas in objects or arrays (e.g., `{{ "a": 1, }}` is INVALID).
 - All braces `{{}}` and brackets `[]` must be correctly paired.
 - Boolean values (`true`, `false`) must NOT be enclosed in quotes.
 - Numeric values must NOT be enclosed in quotes.
-- The value `null` (without quotes) should be used for absent optional fields or when a null value is explicitly intended.
-- Ensure no characters (like comments or extra text) exist outside the main JSON object (e.g. after the final `}}`).
+- The value `null` (without quotes) MUST be used for absent optional fields or when a null value is explicitly intended by the schema (e.g. `"next": null`).
+- Ensure absolutely NO characters (like comments or extra text) exist outside the main JSON object structure (i.e., before the first `{` or after the final `}}`).
 
-Key considerations when generating the JSON content:
+**Key Considerations When Generating JSON Content (Follow these carefully):**
 
 1.  **`pipeline_name`**: Infer a descriptive, CamelCase name (e.g., "CustomerInquiryProcessing").
 2.  **`initial_input`**: (Optional) Initial data for the pipeline.
@@ -136,27 +165,37 @@ Key considerations when generating the JSON content:
             *   `accumulators`: A dictionary to collect data.
                 *   The **key** is the name of the final output list (e.g., `"all_summaries"`).
                 *   The **value** is the input source to collect on each iteration (e.g., `"summarize_step.summary"`).
-        *   **Example `ConditionalRouterTool` Agent**:
+            *   `loop_body_agents`: A list of agent IDs that are part of the loop's body. The outputs of these agents will be cleared before each new iteration of the loop. This is CRUCIAL for correct loop behavior (e.g., `["summarize_step", "another_agent_in_loop"]`).
+        *   **Example `ConditionalRouterTool` Agent for Looping**:
             ```json
             {{
               "id": "loop_controller",
               "type": "tool_agent",
               "tool_name": "ConditionalRouterTool",
-              "description": "Repeats the summary process and collects all summaries.",
+              "description": "Repeats the summary process for 'num_items' times and collects all summaries.",
               "inputs": {{
-                "num_items": "parse_request.num_items",
-                "summary": "summarize_step.summary"
+                "num_items": "parse_request.num_items", // This input determines how many times to loop
+                "item_to_process": "get_item_step.current_item" // Example of an input needed by the loop body, if the router itself doesn't directly use it for accumulation
+                // Add inputs that are sources for the 'accumulators' here
+                // "summary_from_body": "summarize_step.summary" // This is what will be collected
               }},
-              "outputs": ["all_summaries"],
+              // Outputs of the router tool itself, typically the accumulated lists
+              "outputs": ["all_summaries", "loop_counter_final_value"],
               "tool_config": {{
                 "loop_config": {{
-                  "total_iterations_from": "num_items",
-                  "loop_body_start_id": "summarize_step",
-                  "counter_name": "summary_loop_counter",
+                  "total_iterations_from": "num_items", // The input that provides the number of iterations
+                  "loop_body_start_id": "summarize_step", // The ID of the first agent in the sequence to be repeated
+                  "counter_name": "summary_loop_counter",   // An internal name for the loop counter variable
+                  "loop_body_agents": [ // CRUCIAL: List of agent IDs within the loop body whose outputs need to be cleared for re-execution
+                    "summarize_step"
+                    // "another_agent_in_loop_if_any"
+                  ],
                   "accumulators": {{
-                    "all_summaries": "summary"
+                    // "output_list_name": "input_source_for_accumulation"
+                    "all_summaries": "summarize_step.summary" // Collects 'summarize_step.summary' into 'all_summaries' list
                   }}
                 }},
+                // "else_execute_step": "agent_after_loop" // The agent to go to after the loop finishes. Can be null.
                 "else_execute_step": null
               }}
             }}
