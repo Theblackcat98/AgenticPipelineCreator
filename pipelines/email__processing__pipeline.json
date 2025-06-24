@@ -17,14 +17,13 @@
         "subject_category"
       ],
       "tool_config": {
-        "model": "phi4:latest",
         "instructions": "Extract the sender, detect the intent, and categorize the subject from the email content."
       }
     },
     {
       "id": "draft_response",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Drafts a response based on the parsed email details.",
       "prompt_template": "You are drafting an email response. The sender is '{sender}', the intent of their message is '{intent}', and the subject category is '{subject_category}'. Write a professional response.",
       "inputs": {

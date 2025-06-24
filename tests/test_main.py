@@ -31,7 +31,7 @@ def test_main_with_valid_config_path(
 
     mock_fs_open.assert_called_once_with(config_path, "r")
     mock_json_load.assert_called_once_with(mock_fs_open.return_value)
-    mock_orchestrator_class.assert_called_once_with(mock_config_dict)
+    mock_orchestrator_class.assert_called_once_with(mock_config_dict, test_mode=False)
     mock_orchestrator_instance.run.assert_called_once()
     mock_orchestrator_instance.get_final_outputs.assert_called_once_with({"state_key": "state_value"})
     mock_sys_exit.assert_not_called()
@@ -100,7 +100,7 @@ def test_main_no_argv_creates_pipeline(
     # Assert that json.load was called with the file handle object
     # that results from the context manager's __enter__ method.
     mock_json_load.assert_called_once_with(mock_fs_open.return_value.__enter__.return_value)
-    mock_orchestrator_class.assert_called_once_with(mock_config_dict)
+    mock_orchestrator_class.assert_called_once_with(mock_config_dict, test_mode=False)
     mock_orchestrator_instance.run.assert_called_once()
     mock_orchestrator_instance.get_final_outputs.assert_called_once()
     mock_sys_exit.assert_not_called()
@@ -210,7 +210,7 @@ def test_main_confirmation_yes_proceeds_with_config_file(
     with patch('main.sys.argv', ['main.py', config_path]):
         main()
 
-    mock_orchestrator_class.assert_called_once_with(sample_config_valid_for_display)
+    mock_orchestrator_class.assert_called_once_with(sample_config_valid_for_display, test_mode=False)
     mock_orchestrator_instance.run.assert_called_once()
     output = mock_stdout.getvalue()
     assert "Pipeline Flow" in output
@@ -273,7 +273,7 @@ def test_main_creation_path_confirmation_yes(
             main()
 
     mock_create_save.assert_called_once()
-    mock_orchestrator_class.assert_called_once_with(sample_config_valid_for_display)
+    mock_orchestrator_class.assert_called_once_with(sample_config_valid_for_display, test_mode=False)
     mock_orchestrator_instance.run.assert_called_once()
     mock_sys_exit_main.assert_not_called() # Crucial: sys.exit should not be called if user says yes
     output = mock_stdout.getvalue()
@@ -318,9 +318,10 @@ def test_main_run_specific_pipeline_test_mode(
     mock_orchestrator_instance.run.return_value = {"status": "completed"}
     mock_orchestrator_class.return_value = mock_orchestrator_instance
 
-    # Simulate command line arguments: main.py <config_path> --test-mode
-    with patch('main.sys.argv', ['main.py', config_path, '--test-mode']):
-        main() # test_mode should be True when main is called
+    # Simulate command line arguments for config_path only
+    # test_mode will be passed directly to main()
+    with patch('main.sys.argv', ['main.py', config_path]):
+        main(test_mode=True)
 
     # Assertions:
     # 1. display_pipeline_flow was called

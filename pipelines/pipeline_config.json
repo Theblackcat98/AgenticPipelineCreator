@@ -17,14 +17,13 @@
         "distro2"
       ],
       "tool_config": {
-        "model": "phi4:latest",
         "instructions": "The user wants to research a command differences between two Linux distributions and get documentation for each. Extract the command and the two distribution names."
       }
     },
     {
       "id": "research_differences",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Researches and summarizes the differences in the specified command between two distributions.",
       "prompt_template": "What are the key differences and similarities in the usage and features of the '{command}' command between the '{distro1}' and '{distro2}' distributions? Focus on common options and behaviors. Provide a concise summary.",
       "inputs": {
@@ -39,7 +38,7 @@
     {
       "id": "generate_solaris_docs",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Generates usage documentation for the command on Solaris.",
       "prompt_template": "Provide accurate usage documentation, including common examples, for the '{command}' command as it is typically used on the '{distro}' distribution. Mention any specific points from the following summary of differences if relevant: {differences}.",
       "inputs": {
@@ -54,7 +53,7 @@
     {
       "id": "generate_centos_docs",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Generates usage documentation for the command on CentOS.",
       "prompt_template": "Provide accurate usage documentation, including common examples, for the '{command}' command as it is typically used on the '{distro}' distribution. Mention any specific points from the following summary of differences if relevant: {differences}.",
       "inputs": {

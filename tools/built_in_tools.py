@@ -2,6 +2,7 @@ import re
 import json
 from .base_tool import BaseTool
 from typing import Callable, List
+import app_config # Added import
 
 # --- Tool #1: Regex Parser ---
 # The orchestrator tries to import this, so it must be defined here.
@@ -52,10 +53,25 @@ class StructuredDataParserTool(BaseTool):
         if not request_text:
             raise ValueError("StructuredDataParserTool requires 'natural_language_request' in inputs.")
 
-        model = config.get("model")
+        # Import app_config at the top of the file or here if it's a one-off
+        # For now, let's assume it will be at the top of the file.
+        # import app_config # This should be at the top of tools/built_in_tools.py
+
+        model_in_config = config.get("model")
+        if model_in_config:
+            model = model_in_config
+        else:
+            # app_config should be imported at the top of the file
+            # For this diff, we are showing the conceptual change.
+            # The actual import app_config will be added separately if not present.
+            from app_config import DEFAULT_STRUCTURED_DATA_MODEL # Direct import for clarity here
+            model = DEFAULT_STRUCTURED_DATA_MODEL
+            if not model: # Should not happen if app_config has a fallback
+                 raise ValueError("StructuredDataParserTool: Model not found in tool_config and no default model configured.")
+
+
         instructions = config.get("instructions", "Extract the requested fields.")
-        if not model:
-            raise ValueError("StructuredDataParserTool requires 'model' in its tool_config.")
+        # No longer need to check 'if not model:' here as it's resolved or would have raised from app_config if it were empty.
 
         prompt = (
             f"You are an expert data extraction tool. Your sole purpose is to "
@@ -88,35 +104,55 @@ class StructuredDataParserTool(BaseTool):
 class CodeExecutionTool(BaseTool):
     """
     Executes a snippet of Python code.
-    WARNING: This tool is powerful and executes arbitrary code. It should be used with extreme caution
-    and only with trusted code snippets in a secure environment.
+    WARNING: This tool is powerful and executes arbitrary code. It has been modified
+    to restrict access to globals and builtins for security reasons.
+    It should still be used with extreme caution and only with trusted code snippets
+    in a secure, isolated environment.
     """
     def execute(self, inputs: dict, config: dict, **kwargs) -> dict:
         code_snippet = config.get("code")
         if not code_snippet:
             raise ValueError("CodeExecutionTool requires 'code' in its tool_config.")
 
-        # Prepare the local scope for exec
-        local_scope = {"inputs": inputs}
+        # Prepare a restricted global scope
+        restricted_globals = {
+            "__builtins__": {
+                "print": print,
+                "len": len,
+                "range": range,
+                "int": int,
+                "float": float,
+                "str": str,
+                "list": list,
+                "dict": dict,
+                "set": set,
+                "True": True,
+                "False": False,
+                "None": None,
+                # Add other safe builtins as needed
+            },
+            "json": json, # Allow json module for data manipulation
+            # "math": math, # Example: allow math module if needed
+        }
         
-        # Capture the output of the exec call
-        # We can redirect stdout to capture prints, but for returning a value,
-        # we'll have exec populate a 'result' dictionary.
-        result_scope = {}
+        # The local scope will have 'inputs' and 'results' dictionary
+        local_scope = {"inputs": inputs, "results": {}}
         
         # The code snippet should assign its output to a variable, e.g., 'output'.
-        # We will pass our result_scope to be populated.
+        # We will have the exec populate the 'output' key in the 'results' dictionary.
+        # This structure avoids direct modification of the 'output' variable name in the user's code.
         full_code = f"""
-import json
-# The user's code snippet is placed here
+# The user's code snippet is placed here:
 {code_snippet}
-# The user's script should assign its result to a variable named 'output'
-# We capture it into our results dictionary
+
+# The user's script should assign its result to a variable named 'output'.
+# We capture it into the 'results' dictionary, which is in our local_scope.
 results['output'] = output
 """
         try:
-            exec(full_code, {"inputs": inputs}, result_scope)
-            return result_scope.get("output", {})
+            exec(full_code, restricted_globals, local_scope)
+            # Retrieve the result from the 'results' dictionary in local_scope
+            return local_scope.get("results", {}).get("output", {"error": "Output variable 'output' not found in executed code."})
         except Exception as e:
             return {"error": f"Error executing code: {str(e)}"}
 
@@ -124,107 +160,146 @@ results['output'] = output
 # --- Tool #4: Conditional Router Tool ---
 class ConditionalRouterTool(BaseTool):
     """
-    Directs the pipeline's execution flow based on specified conditions.
-    It returns a special '_next_step_id' output that the orchestrator can use
-    to determine the next step.
+    Directs the pipeline's execution flow based on specified conditions
+    or manages looping constructs.
+    It returns a special '_next_step_id' output that the orchestrator uses
+    to determine the next agent to execute.
+    It can also return '_update_state' to modify the pipeline_state (e.g., for loop counters
+    and data accumulation) and '_clear_agent_outputs' to signal the orchestrator
+    to clear outputs of specified agents before the next loop iteration.
     """
     def execute(self, inputs: dict, config: dict, pipeline_state: dict, agent_id: str = None, **kwargs) -> dict: # Add agent_id
         """
         Directs execution flow. It can act as a simple conditional branch or
         as a stateful loop controller with data aggregation.
 
-        Looping Logic:
-        - The tool checks for a 'loop_config' in its configuration.
-        - It uses 'pipeline_state' to track the loop's counter and accumulated data.
-        - It initializes the counter and accumulator lists if they are not in the state.
-        - On each run, it appends data to the lists, increments the counter, and
-          determines the next step.
-        - When the loop finishes, it returns the aggregated data lists.
+        Args:
+            inputs (dict): Inputs to this tool, resolved by the orchestrator.
+            config (dict): Configuration specific to this tool instance from the pipeline JSON.
+                           Expected to contain 'loop_config' or 'condition_groups'.
+            pipeline_state (dict): The current state of the entire pipeline. Used for reading
+                                   loop counters, accumulated data, and potentially for
+                                   conditions if they refer to broader pipeline state.
+            agent_id (str, optional): The ID of the agent executing this tool. Used for
+                                      namespacing state variables (counters, accumulators)
+                                      to avoid collisions if multiple router tools are used.
+
+        Looping Logic (if 'loop_config' is present in config):
+        - State Keys: Loop counter and accumulator lists are stored in `pipeline_state`
+          using keys namespaced by `agent_id` (e.g., "my_router_agent.loop_counter").
+        - Initialization: If a counter or accumulator list is not found in `pipeline_state`,
+          it's typically initialized (e.g., counter to 0, accumulator to an empty list).
+        - Data Aggregation: On each call, specified input values are appended to their
+          respective accumulator lists. This updated list is part of the `_update_state`
+          returned to the orchestrator. This step runs *before* the loop condition is checked.
+        - Loop Control: Compares the current loop counter (from `pipeline_state`) against
+          the configured total number of iterations.
+            - If continuing: Increments the counter. Returns `_next_step_id` pointing to
+              the start of the loop body, `_update_state` with the new counter value and
+              updated accumulator lists, and `_clear_agent_outputs` listing agents in the
+              loop body whose outputs should be cleared by the orchestrator.
+            - If terminating: Returns `_next_step_id` pointing to the agent to execute
+              after the loop (from `else_execute_step` in `loop_config`). Also returns
+              the final accumulated data directly in its output (e.g., "all_my_items": [...]).
         """
         loop_config = config.get("loop_config")
 
         # --- Stateful Looping Behavior ---
         if loop_config:
-            total_iterations_config_value = loop_config.get("total_iterations_from")
-            loop_body_start_id = loop_config.get("loop_body_start_id")
-            counter_name = loop_config.get("counter_name")
-            accumulators = loop_config.get("accumulators", {})
-            loop_body_agents = loop_config.get("loop_body_agents", []) # Ensure this is fetched
+            # Configuration for the loop
+            total_iterations_config_value = loop_config.get("total_iterations_from") # Can be int or key name from inputs
+            loop_body_start_id = loop_config.get("loop_body_start_id") # Agent ID to jump to for loop body
+            counter_name = loop_config.get("counter_name")             # Base name for the loop counter state key
+            accumulators = loop_config.get("accumulators", {})         # Dict mapping {output_name: input_source_key}
+            loop_body_agents = loop_config.get("loop_body_agents", []) # List of agent IDs in the loop body
 
-            namespaced_counter_key = f"{agent_id}.{counter_name}" if agent_id else counter_name
+            # Namespace the counter key to be specific to this router agent instance
+            namespaced_counter_key = f"{agent_id}.{counter_name}" if agent_id and counter_name else counter_name
+            if not namespaced_counter_key:
+                 raise ValueError(f"ConditionalRouterTool ({agent_id}): 'counter_name' must be defined in loop_config.")
 
-            if namespaced_counter_key not in pipeline_state:
-                current_count = 0
-            else:
-                current_count = pipeline_state.get(namespaced_counter_key, 0)
 
-            total_iterations = 0 # Initialize total_iterations
+            # Retrieve current loop count from pipeline_state, defaulting to 0 if not found (first iteration)
+            current_count = pipeline_state.get(namespaced_counter_key, 0)
+
+            # Determine total iterations required
+            total_iterations = 0
             if isinstance(total_iterations_config_value, int):
                 total_iterations = total_iterations_config_value
-            elif isinstance(total_iterations_config_value, str):
+            elif isinstance(total_iterations_config_value, str): # Key name to get from 'inputs'
+                if not total_iterations_config_value: # handle empty string case
+                    raise ValueError(f"ConditionalRouterTool ({agent_id}): 'total_iterations_from' key name cannot be empty if it's a string.")
                 total_iterations_value_from_inputs = inputs.get(total_iterations_config_value)
                 if total_iterations_value_from_inputs is None:
-                    raise ValueError(f"Looping error: Total iterations key '{total_iterations_config_value}' not found in inputs. Ensure it's defined in the agent's 'inputs'.")
+                    raise ValueError(f"Looping error for agent '{agent_id}': Total iterations key '{total_iterations_config_value}' not found in inputs. Ensure it's defined in the agent's 'inputs'. Current inputs: {list(inputs.keys())}")
                 try:
                     total_iterations = int(total_iterations_value_from_inputs)
                 except ValueError:
-                    raise ValueError(f"Looping error: Input '{total_iterations_config_value}' (resolved to '{total_iterations_value_from_inputs}') must be an integer.")
+                    raise ValueError(f"Looping error for agent '{agent_id}': Input '{total_iterations_config_value}' (resolved to '{total_iterations_value_from_inputs}') must be an integer.")
             else:
-                raise ValueError(f"Looping error: 'total_iterations_from' in loop_config must be an integer or a string key name. Got type {type(total_iterations_config_value)}.")
+                raise ValueError(f"Looping error for agent '{agent_id}': 'total_iterations_from' in loop_config must be an integer or a string key name. Got type {type(total_iterations_config_value)}.")
 
-            # Ensure loop_body_agents is correctly used for _clear_agent_outputs if needed by the logic
-            # The rest of the logic for data aggregation and loop control follows...
-            # --- Data Aggregation ---
-            # This happens before the check, so on the first run (count=0), it still collects initial data.
-            updated_state = {}
-            for output_key, input_source in accumulators.items():
-                if input_source in inputs:
-                    # Ensure the list exists before appending
-                    # if output_key not in pipeline_state: # This was modifying pipeline_state directly
-                    #     pipeline_state[output_key] = []  # Should use updated_state or get from pipeline_state for current_list
-                    
-                    value_to_accumulate = inputs[input_source]
-                    # Only accumulate if the value is not None and not an empty string (for this use case)
-                    if value_to_accumulate is not None and value_to_accumulate != "":
-                        # output_key is the short name (e.g., "all_generated_items")
-                        namespaced_acc_key = f"{agent_id}.{output_key}" if agent_id else output_key
-                        current_list = pipeline_state.get(namespaced_acc_key, [])
-                        new_list = current_list + [value_to_accumulate]
-                        # When putting into updated_state, use the short name. Orchestrator will namespace it.
-                        updated_state[output_key] = new_list
-                else:
-                    # If an expected input is missing, you might want to handle it,
-                    # e.g., by appending a null value or raising an error.
-                    # Here, we'll just note it and continue.
-                    print(f"Warning: Accumulator source '{input_source}' not found in inputs for '{output_key}'.")
+            # --- Data Aggregation for current iteration ---
+            # This step collects data from the current 'inputs' and appends to accumulator lists.
+            # The resulting lists are stored in 'updated_state', which, if the loop continues,
+            # will be returned via '_update_state' for the orchestrator to merge into the main pipeline_state.
+            # If the loop terminates, this 'updated_state' provides the final accumulated values.
+            updated_state = {} # Holds data to be updated in pipeline_state OR used in final output
+            if accumulators:
+                for output_key, input_source_key in accumulators.items():
+                    if input_source_key in inputs:
+                        value_to_accumulate = inputs[input_source_key]
+                        # Accumulate only if the value is meaningful (not None, not empty string for this example)
+                        if value_to_accumulate is not None and value_to_accumulate != "":
+                            namespaced_acc_key = f"{agent_id}.{output_key}" if agent_id and output_key else output_key
+                            if not namespaced_acc_key:
+                                 raise ValueError(f"ConditionalRouterTool ({agent_id}): Accumulator output key cannot be empty.")
 
+                            current_list = pipeline_state.get(namespaced_acc_key, [])
+                            if not isinstance(current_list, list):
+                                print(f"Warning: Accumulator '{namespaced_acc_key}' in pipeline_state was not a list (found {type(current_list)}). Re-initializing as empty list.")
+                                current_list = []
 
-            # --- Loop Control ---
+                            new_list = current_list + [value_to_accumulate]
+                            updated_state[output_key] = new_list # Store with non-namespaced key for _update_state
+                    else:
+                        print(f"Warning for agent '{agent_id}': Accumulator source key '{input_source_key}' for output '{output_key}' not found in current inputs. Skipping accumulation for this item.")
+
+            # --- Loop Control Decision ---
             if current_count < total_iterations:
-                # Continue loop: increment counter and go to loop body
+                # Continue Loop:
+                # Increment counter for the *next* iteration.
                 next_count = current_count + 1
-                updated_state[counter_name] = next_count
+                # Add the new counter value to updated_state.
+                # The orchestrator will use 'agent_id' to namespace this 'counter_name' in pipeline_state.
+                if counter_name: # Only update counter if a name is provided
+                    updated_state[counter_name] = next_count
                 return {
                     "_next_step_id": loop_body_start_id,
-                    "_update_state": updated_state,
+                    "_update_state": updated_state, # Contains new counter and new accumulator lists
                     "_clear_agent_outputs": loop_body_agents
                 }
             else:
-                # End loop: return aggregated data and proceed to the next step
-                # The 'updated_state' dictionary at this point contains the latest accumulated lists.
+                # Terminate Loop:
+                # Prepare the final output of this tool agent.
+                # It should include the next step ID (if any) and the final accumulated data.
                 final_output = {"_next_step_id": config.get("else_execute_step")}
-                # Merge the final accumulated values from updated_state into final_output
+
+                # Populate final_output with accumulated data.
+                # These are taken from the 'updated_state' computed in the Data Aggregation
+                # phase of *this current call*, which includes the item from the last iteration.
                 for acc_output_key in accumulators.keys():
                     if acc_output_key in updated_state:
                         final_output[acc_output_key] = updated_state[acc_output_key]
                     else:
-                        # If not in updated_state (e.g. if it was never populated due to conditions),
-                        # fetch from pipeline_state as a fallback, though this should ideally be covered by updated_state.
-                        namespaced_acc_key = f"{agent_id}.{acc_output_key}" if agent_id else acc_output_key
+                        # Fallback: if not in current updated_state (e.g., input was missing or empty for the last item),
+                        # get the list as it was from pipeline_state (before this call's aggregation attempt).
+                        namespaced_acc_key = f"{agent_id}.{acc_output_key}" if agent_id and acc_output_key else acc_output_key
+                        if not namespaced_acc_key: continue # Should have been caught by earlier check if output_key was empty
                         final_output[acc_output_key] = pipeline_state.get(namespaced_acc_key, [])
                 return final_output
 
-        # --- Standard Conditional Routing ---
+        # --- Standard Conditional Routing (if not a loop or loop has finished) ---
         condition_groups = config.get("condition_groups", [])
         else_step = config.get("else_execute_step")
 

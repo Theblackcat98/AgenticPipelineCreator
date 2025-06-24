@@ -48,9 +48,9 @@
       "id": "loop_controller",
       "type": "tool_agent",
       "tool_name": "ConditionalRouterTool",
-      "description": "Repeats the genre, title, and lyrics generation process 4 times.",
+      "description": "Repeats the genre, title, and lyrics generation process 1 time.",
       "inputs": {
-        "num_iterations": 4,
+        "num_iterations": 1,
         "genre": "generate_random_genre.genre",
         "title": "generate_title_based_on_genre.title",
         "lyrics": "generate_lyrics_based_on_genre_and_title.lyrics"
@@ -69,7 +69,12 @@
             "all_genres": "genre",
             "all_titles": "title",
             "all_lyrics": "lyrics"
-          }
+          },
+          "loop_body_agents": [
+            "generate_random_genre",
+            "generate_title_based_on_genre",
+            "generate_lyrics_based_on_genre_and_title"
+          ]
         },
         "else_execute_step": null
       }

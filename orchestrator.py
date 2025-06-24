@@ -2,6 +2,8 @@ import json
 import re
 from typing import Callable, List, Dict, Any
 
+import app_config # Added import
+
 # --- Framework Dependencies ---
 # The orchestrator depends on the LLM client and the available built-in tools.
 from llm.ollama_client import invoke_llm
@@ -163,8 +165,21 @@ class Orchestrator:
             # It supports standard LLM agents, tool agents, and a more flexible
             # format where the agent's type is the tool name itself.
             if agent_type == 'llm_agent':
+                # app_config should be imported at the top of the file.
+                # from app_config import DEFAULT_LLM_MODEL # For clarity in diff
+
+                model_name_from_config = agent_config.get('model')
+                if not model_name_from_config or model_name_from_config == "$DEFAULT_MODEL":
+                    # This line assumes app_config is imported at the top of orchestrator.py
+                    from app_config import DEFAULT_LLM_MODEL
+                    model_to_use = DEFAULT_LLM_MODEL
+                    if not model_to_use: # Should not happen with proper app_config
+                        raise ValueError(f"LLM Agent '{current_agent_id}': Model not specified and no default model configured.")
+                else:
+                    model_to_use = model_name_from_config
+
                 prompt = agent_config['prompt_template'].format(**resolved_inputs)
-                llm_response = invoke_llm(agent_config['model'], prompt)
+                llm_response = invoke_llm(model_to_use, prompt)
 
                 if agent_config.get("output_format") == "list":
                     llm_response = self._parse_llm_list_output(llm_response)

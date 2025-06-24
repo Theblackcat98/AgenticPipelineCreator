@@ -152,26 +152,23 @@ def test_structured_data_parser_missing_model_config():
     inputs = {"natural_language_request": "Data."}
     config = {} # Missing 'model'
     output_fields = ["field1"]
-    with pytest.raises(ValueError, match="StructuredDataParserTool requires 'model' in its tool_config."):
-        tool.execute(inputs, config, invoke_llm=MagicMock(), output_fields=output_fields)
+    # Patch app_config.DEFAULT_STRUCTURED_DATA_MODEL to be None for this test
+    # to ensure the tool raises ValueError if no model can be resolved at all.
+    with patch('app_config.DEFAULT_STRUCTURED_DATA_MODEL', None):
+        with pytest.raises(ValueError, match="StructuredDataParserTool: Model not found in tool_config and no default model configured."):
+            tool.execute(inputs, config, invoke_llm=MagicMock(), output_fields=output_fields)
 
 # --- Tests for CodeExecutionTool ---
 
 def test_code_execution_tool_success():
     tool = CodeExecutionTool()
     inputs = {"value": 5}
-    # This code snippet should access 'inputs', perform a calculation,
-    # and assign the result to a dictionary key named 'output'.
-    # The exec environment will have 'inputs' and 'results' dicts.
-    # The tool is designed to extract 'output' from the 'results' dict.
+    # User's code snippet just needs to define 'output'
     code_snippet = """
-results = {} # This dict is populated by the tool's exec context
 data = inputs['value'] * 2
-output = {'final_value': data} # The user's script must assign to 'output'
-results['output'] = output # This is how the tool retrieves the output
+output = {'final_value': data}
 """
     config = {"code": code_snippet}
-
     expected_output = {"final_value": 10}
     actual_output = tool.execute(inputs=inputs, config=config)
     assert actual_output == expected_output
@@ -179,11 +176,11 @@ results['output'] = output # This is how the tool retrieves the output
 def test_code_execution_tool_script_error():
     tool = CodeExecutionTool()
     inputs = {}
-    # This code snippet will cause a ZeroDivisionError
-    code_snippet = "output = 1 / 0"
+    # This code snippet will cause a ZeroDivisionError. 'output' is defined.
+    code_snippet = """
+output = 1 / 0
+"""
     config = {"code": code_snippet}
-
-    # The tool should catch the exception and return an error message
     expected_error_fragment = "Error executing code: division by zero"
     result = tool.execute(inputs, config)
     assert "error" in result
@@ -196,26 +193,104 @@ def test_code_execution_tool_missing_code_config():
     with pytest.raises(ValueError, match="CodeExecutionTool requires 'code' in its tool_config."):
         tool.execute(inputs, config)
 
-def test_code_execution_tool_no_output_variable():
+def test_code_execution_tool_no_output_variable_defined_by_user_code(): # Renamed for clarity
     tool = CodeExecutionTool()
     inputs = {"value": 5}
-    # This code snippet performs a calculation but doesn't assign to 'output'
-    # in the way the tool expects.
+    # This code snippet performs a calculation but doesn't assign to 'output'.
     code_snippet = """
 data = inputs['value'] * 2
-# No assignment to 'output'
+# No assignment to 'output' by the user's code.
 """
     config = {"code": code_snippet}
-
-    # If 'output' is not in result_scope, the tool currently returns {}.
-    # Depending on desired behavior, this could also be an error or a specific message.
-    # The current implementation of CodeExecutionTool's exec wrapper does:
-    # results['output'] = output (where output must be defined in the snippet)
-    # If 'output' is not defined in the snippet, a NameError occurs during exec.
+    # The tool's wrapper `results['output'] = output` will cause a NameError if 'output' isn't defined.
     expected_error_fragment = "Error executing code: name 'output' is not defined"
     result = tool.execute(inputs=inputs, config=config)
     assert "error" in result
     assert expected_error_fragment in result["error"]
+
+# New Security Tests for CodeExecutionTool
+
+def test_code_execution_tool_disallowed_builtin_open():
+    tool = CodeExecutionTool()
+    inputs = {}
+    # Attempt to use 'open', which should not be in restricted_globals.__builtins__
+    code_snippet = "output = open('test.txt', 'w')"
+    config = {"code": code_snippet}
+    result = tool.execute(inputs, config)
+    assert "error" in result
+    # Error might be "NameError: name 'open' is not defined" or similar security exception
+    assert "name 'open' is not defined" in result["error"]
+
+def test_code_execution_tool_disallowed_builtin_eval():
+    tool = CodeExecutionTool()
+    inputs = {}
+    code_snippet = "output = eval('1+1')"
+    config = {"code": code_snippet}
+    result = tool.execute(inputs, config)
+    assert "error" in result
+    assert "name 'eval' is not defined" in result["error"]
+
+def test_code_execution_tool_disallowed_module_os():
+    tool = CodeExecutionTool()
+    inputs = {}
+    # Attempt to import and use 'os' module
+    code_snippet = """
+import os
+output = os.getcwd()
+"""
+    config = {"code": code_snippet}
+    result = tool.execute(inputs, config)
+    assert "error" in result
+    # Error will likely be "No module named 'os'" because 'os' is not in restricted_globals
+    # or potentially a more specific security error if the import itself is blocked differently.
+    # Given current implementation, it's `exec(full_code, restricted_globals, local_scope)`
+    # `import os` within `full_code` will fail if `os` is not in `restricted_globals`.
+    # The actual error is that `__import__` is not available in the restricted builtins.
+    assert "Error executing code: __import__ not found" in result["error"] or \
+           "Error executing code: name '__import__' is not defined" in result["error"] # Py 3.12 vs older
+
+
+def test_code_execution_tool_allowed_builtin_len_and_inputs_access():
+    tool = CodeExecutionTool()
+    inputs = {"data_list": [1, 2, 3]}
+    # Use allowed 'len' and access 'inputs'
+    code_snippet = """
+output = {"length": len(inputs["data_list"])}
+"""
+    config = {"code": code_snippet}
+    expected_output = {"length": 3}
+    assert tool.execute(inputs, config) == expected_output
+
+def test_code_execution_tool_allowed_module_json():
+    tool = CodeExecutionTool()
+    inputs = {"my_dict": {"key": "value", "number": 42}}
+    # Use allowed 'json' module (json.dumps)
+    # The 'json' module is added to restricted_globals directly.
+    code_snippet = """
+output = json.dumps(inputs["my_dict"], sort_keys=True)
+"""
+    config = {"code": code_snippet}
+    # Expected output is a JSON string.
+    # Python's json.dumps will add spaces after separators by default.
+    expected_json_string = '{"key": "value", "number": 42}'
+    # The result from the tool will be this string.
+    actual_result = tool.execute(inputs, config)
+    assert actual_result == expected_json_string
+
+def test_code_execution_tool_input_variable_name_not_overwritten():
+    tool = CodeExecutionTool()
+    # Test that 'output' or 'results' in inputs doesn't interfere
+    inputs = {"value": 5, "output": "initial_output", "results": "initial_results"}
+    code_snippet = """
+data = inputs['value'] * 3
+# This 'output' is the one that the tool expects for the result.
+output = {'final_value': data, 'original_output_input': inputs['output']}
+"""
+    config = {"code": code_snippet}
+    expected_output = {"final_value": 15, "original_output_input": "initial_output"}
+    actual_output = tool.execute(inputs=inputs, config=config)
+    assert actual_output == expected_output
+
 
 # --- Tests for ConditionalRouterTool ---
 
@@ -306,10 +381,11 @@ def test_conditional_router_loop_initialization_and_first_step(mock_pipeline_sta
 
     # Check that pipeline_state was updated (though the tool returns the update separately)
     # For this test, we assume orchestrator would apply this.
-    # Here, we can check the passed-in mock_pipeline_state was modified directly by the tool
-    # for initializing the counter and accumulator list if they didn't exist.
-    assert mock_pipeline_state["my_loop_counter"] == 0 # Initialized if not present
-    assert mock_pipeline_state["all_item_data"] == []  # Initialized if not present
+    # The tool itself does not directly modify the passed-in pipeline_state for initialization;
+    # it returns the intended updates in _update_state.
+    # So, direct assertions on mock_pipeline_state for prior non-existence leading to initialization are removed.
+    # The critical checks are that result['_update_state'] contains the correct initial counter and accumulator.
+    # If mock_pipeline_state started empty, result['_update_state']['all_item_data'] correctly shows the first item.
 
 
 def test_conditional_router_loop_iteration(mock_pipeline_state):
@@ -393,8 +469,9 @@ def test_conditional_router_loop_missing_total_iterations_input(mock_pipeline_st
             "accumulators": {"all_item_data": "current_item_data"}
         }
     }
-    with pytest.raises(ValueError, match="Looping error: Total iterations key 'num_items' not found in inputs."):
-        tool.execute(inputs, config, pipeline_state=mock_pipeline_state)
+    expected_error_msg = r"Looping error for agent 'None': Total iterations key 'num_items' not found in inputs. Ensure it's defined in the agent's 'inputs'. Current inputs: \[]"
+    with pytest.raises(ValueError, match=expected_error_msg):
+        tool.execute(inputs, config, pipeline_state=mock_pipeline_state, agent_id=None) # Pass agent_id=None explicitly for clarity
 
 def test_conditional_router_loop_zero_iterations(mock_pipeline_state):
     tool = ConditionalRouterTool()

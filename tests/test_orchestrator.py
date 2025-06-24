@@ -283,6 +283,81 @@ def test_orchestrator_run_looping_pipeline(mock_builtin_input, mock_data_aggrega
         "Generated Item for iteration 1"
     ]
 
+
+@patch('orchestrator.invoke_llm')
+def test_orchestrator_run_random_genre_lyrics_pipeline(mock_invoke_llm_orchestrator):
+    config = load_pipeline_config_for_integration_test("random_genre_lyrics_generation_pipeline.json")
+
+    # Mock LLM responses:
+    # Loop 1:
+    #   generate_random_genre -> "Rock"
+    #   generate_title_based_on_genre -> "Rock Anthem"
+    #   generate_lyrics_based_on_genre_and_title -> "Rock lyrics 1"
+    # Loop 2:
+    #   generate_random_genre -> "Pop"
+    #   generate_title_based_on_genre -> "Pop Hit"
+    #   generate_lyrics_based_on_genre_and_title -> "Pop lyrics 1"
+    # Loop 3:
+    #   generate_random_genre -> "Jazz"
+    #   generate_title_based_on_genre -> "Jazz Smooth"
+    #   generate_lyrics_based_on_genre_and_title -> "Jazz lyrics 1"
+    # Loop 4:
+    #   generate_random_genre -> "Blues"
+    #   generate_title_based_on_genre -> "Bluesy Tune"
+    #   generate_lyrics_based_on_genre_and_title -> "Blues lyrics 1"
+    # Final agent:
+    #   generate_album_name -> "My Awesome Album"
+    mock_invoke_llm_orchestrator.side_effect = [
+        "output_1", "output_2", "output_3",  # Iter 1 (genre, title, lyrics)
+        "output_4"                           # Album name
+    ]
+
+    orchestrator_instance = Orchestrator(config)
+    final_state = orchestrator_instance.run()
+
+    # Assertions
+    assert mock_invoke_llm_orchestrator.call_count == 4 # (3 LLM calls for 1 loop) + 1 final LLM call
+
+    # Check accumulated data
+    expected_genres = ["output_1"]
+    expected_titles = ["output_2"]
+    expected_lyrics = ["output_3"]
+
+    # These come from the loop_controller's output directly after it finishes looping.
+    # The orchestrator stores agent outputs namespaced by agent ID.
+    assert final_state.get("loop_controller.all_genres") == expected_genres
+    assert final_state.get("loop_controller.all_titles") == expected_titles
+    assert final_state.get("loop_controller.all_lyrics") == expected_lyrics
+    assert final_state.get("loop_controller.generation_loop_counter") == 1 # Counter after 1 iteration
+
+    # Check final output from the last agent
+    assert final_state.get("generate_album_name.album_name") == "output_4"
+
+    # Check overall final outputs of the pipeline (as defined in pipeline's final_outputs section)
+    final_outputs = orchestrator_instance.get_final_outputs(final_state)
+    assert final_outputs.get("all_genres") == expected_genres
+    assert final_outputs.get("all_titles") == expected_titles
+    assert final_outputs.get("all_lyrics") == expected_lyrics
+    assert final_outputs.get("album_name") == "output_4"
+
+    # Optional: More detailed prompt checking for the 'generate_album_name' agent.
+    # This ensures the accumulated data is correctly piped into the final LLM call.
+    last_call_args = mock_invoke_llm_orchestrator.call_args_list[-1]
+    model_called_last = last_call_args[0][0]
+    prompt_for_album_name = last_call_args[0][1]
+
+    # Find the 'generate_album_name' agent config to get its model
+    album_agent_config = next(agent for agent in config["agents"] if agent["id"] == "generate_album_name")
+    assert model_called_last == album_agent_config["model"]
+
+    # Reconstruct the expected prompt for 'generate_album_name'
+    # Prompt template: "Create a creative album name using these song titles: {all_titles}. The songs are in the following genres: {all_genres}."
+    expected_album_prompt = album_agent_config["prompt_template"].format(
+        all_titles=expected_titles,
+        all_genres=expected_genres
+    )
+    assert prompt_for_album_name == expected_album_prompt
+
     # Check an output from one of the DataAggregator steps
     assert final_state.get("setup_loop_vars.actual_loop_count") == 2
     assert final_state.get("final_processing.processed_data") == [

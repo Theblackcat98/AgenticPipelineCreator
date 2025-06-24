@@ -6,7 +6,7 @@
     {
       "id": "generate_random_genre",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Generates a random music genre.",
       "prompt_template": "Generate a random music genre.",
       "inputs": {},
@@ -18,7 +18,7 @@
     {
       "id": "generate_title_based_on_genre",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Generates a title based on the given genre.",
       "prompt_template": "Generate a creative song title for the genre '{genre}'.",
       "inputs": {
@@ -32,7 +32,7 @@
     {
       "id": "generate_lyrics_based_on_genre_and_title",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Generates lyrics based on the genre and title.",
       "prompt_template": "Write song lyrics for a song titled '{title}' in the genre '{genre}'.",
       "inputs": {
@@ -69,15 +69,20 @@
             "all_genres": "genre",
             "all_titles": "title",
             "all_lyrics": "lyrics"
-          }
+          },
+          "loop_body_agents": [
+            "generate_random_genre",
+            "generate_title_based_on_genre",
+            "generate_lyrics_based_on_genre_and_title"
+          ]
         },
-        "else_execute_step": null
+        "else_execute_step": "generate_album_name"
       }
     },
     {
       "id": "generate_album_name",
       "type": "llm_agent",
-      "model": "phi4:latest",
+      # Model will be picked from app_config.DEFAULT_LLM_MODEL
       "description": "Generates an album name based on the generated genres and titles.",
       "prompt_template": "Create a creative album name using these song titles: {all_titles}. The songs are in the following genres: {all_genres}.",
       "inputs": {
